@@ -6,8 +6,10 @@ Features:
 - Dynamic Red Bounding Box (红框) with corner target brackets highlighting the exact paragraph/figure/formula
 - Zoomed-in focus preview + Term Explanation Card (专业名词解析卡片) on the side panel
 - Synchronized Bilingual Subtitles (中英双语字幕) + Chapter Progress Bar at the bottom
-- Dual-mode Audio Synthesis: uses Microsoft Edge Neural TTS (edge-tts) when online,
-  and automatically falls back to offline acoustic dialogue synthesis when offline.
+- Expressive Audio Synthesis: supports Microsoft Edge Neural TTS for lightweight
+  runs and Azure Speech SSML for per-turn style, prosody, pauses, and emphasis.
+- Explicit safety fallback: cadence-only audio is available for visual previews,
+  while --require-tts rejects every fallback or provider mismatch.
 - Optional --export-gif flag to export an animated GIF preview for GitHub READMEs.
 """
 
@@ -20,7 +22,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 import wave
+from xml.sax.saxutils import escape as xml_escape
 import numpy as np
 import pdfplumber
 from PIL import Image, ImageDraw, ImageFont
@@ -45,6 +50,30 @@ FONT_BOLD_CANDIDATES = [
     "/System/Library/Fonts/PingFang.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
+
+VOICE_BACKENDS = {"edge-tts", "azure-speech"}
+NATIVE_EMPHASIS_VOICES = {"en-US-GuyNeural", "en-US-DavisNeural", "en-US-JaneNeural"}
+
+DEFAULT_STYLE_BY_EMOTION = {
+    "female": {
+        "neutral": "chat",
+        "curious": "chat",
+        "skeptical": "serious",
+        "serious": "serious",
+        "surprised": "excited",
+        "excited": "excited",
+        "reflective": "calm",
+    },
+    "male": {
+        "neutral": "narration-relaxed",
+        "curious": "narration-relaxed",
+        "skeptical": "serious",
+        "serious": "serious",
+        "surprised": "documentary-narration",
+        "excited": "documentary-narration",
+        "reflective": "documentary-narration",
+    },
+}
 
 
 def strip_unsupported_emoji(text):
@@ -181,19 +210,183 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 
-async def try_edge_tts(text, voice, out_wav):
-    import edge_tts
-    tmp_mp3 = out_wav + ".mp3"
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(tmp_mp3)
+def _xml_attr(value):
+    return xml_escape(str(value), {'"': "&quot;", "'": "&apos;"})
+
+
+def _ssml_text_with_emphasis(text, emphasis_terms, voice):
+    """Apply supported emphasis, or a conservative prosody cue for other voices."""
+    terms = []
+    for term in emphasis_terms or []:
+        if isinstance(term, str) and term.strip() and term not in terms:
+            terms.append(term)
+    if not terms:
+        return xml_escape(text)
+
+    pattern = re.compile("(" + "|".join(re.escape(term) for term in sorted(terms, key=len, reverse=True)) + ")")
+    parts = []
+    cursor = 0
+    for match in pattern.finditer(text):
+        parts.append(xml_escape(text[cursor:match.start()]))
+        escaped_term = xml_escape(match.group(0))
+        if voice in NATIVE_EMPHASIS_VOICES:
+            parts.append(f'<emphasis level="moderate">{escaped_term}</emphasis>')
+        else:
+            # Azure currently documents native word-level emphasis for only three
+            # en-US voices. A slight local slowdown is a portable cue for zh-CN.
+            parts.append(f'<prosody rate="-8%" pitch="+1Hz">{escaped_term}</prosody>')
+        cursor = match.end()
+    parts.append(xml_escape(text[cursor:]))
+    return "".join(parts)
+
+
+def resolve_voice_profile(data, speaker):
+    """Resolve the selected voice while retaining the legacy male/female fields."""
+    speaker = "male" if str(speaker).lower() == "male" else "female"
+    default_voice = "zh-CN-YunjianNeural" if speaker == "male" else "zh-CN-XiaoxiaoNeural"
+    legacy_voice = data.get(f"{speaker}_voice", default_voice)
+    profiles = data.get("voice_profiles") or {}
+    profile = profiles.get(speaker) if isinstance(profiles, dict) else None
+    profile = dict(profile) if isinstance(profile, dict) else {}
+    profile["voice"] = profile.get("voice") or legacy_voice
+    profile.setdefault("default_style", DEFAULT_STYLE_BY_EMOTION[speaker]["neutral"])
+    profile.setdefault("styles_by_emotion", DEFAULT_STYLE_BY_EMOTION[speaker])
+    profile.setdefault("rate", "+0%")
+    profile.setdefault("pitch", "+0Hz")
+    profile.setdefault("volume", "+0%")
+    profile.setdefault("style_degree", 1.0)
+    return profile
+
+
+def resolve_delivery(turn, voice_profile):
+    delivery = turn.get("delivery") if isinstance(turn.get("delivery"), dict) else {}
+    emotion = str(turn.get("emotion") or "neutral").lower()
+    styles = voice_profile.get("styles_by_emotion")
+    styles = styles if isinstance(styles, dict) else {}
+    style = delivery.get("provider_style") or styles.get(emotion) or voice_profile.get("default_style") or ""
+    intensity = turn.get("emotion_intensity", 0.5)
+    style_degree = delivery.get("style_degree", voice_profile.get("style_degree", 1.0))
+    try:
+        style_degree = float(style_degree)
+    except (TypeError, ValueError):
+        style_degree = 1.0
+    style_degree = max(0.01, min(2.0, style_degree))
+    try:
+        intensity = float(intensity)
+    except (TypeError, ValueError):
+        intensity = 0.5
+
+    return {
+        "emotion": emotion,
+        "emotion_intensity": max(0.0, min(1.0, intensity)),
+        "provider_style": str(style).strip(),
+        "style_degree": style_degree,
+        "rate": str(delivery.get("rate", voice_profile.get("rate", "+0%"))),
+        "pitch": str(delivery.get("pitch", voice_profile.get("pitch", "+0Hz"))),
+        "volume": str(delivery.get("volume", voice_profile.get("volume", "+0%"))),
+        "pause_before_ms": max(0, int(delivery.get("pause_before_ms", 0) or 0)),
+        "pause_after_ms": max(0, int(delivery.get("pause_after_ms", 250) or 0)),
+        "emphasis_terms": delivery.get("emphasis_terms") if isinstance(delivery.get("emphasis_terms"), list) else [],
+    }
+
+
+def build_azure_ssml(text, voice, delivery):
+    """Build Azure Speech SSML without sending source files or evidence images."""
+    lang_parts = str(voice).split("-")
+    language = "-".join(lang_parts[:2]) if len(lang_parts) >= 2 else "zh-CN"
+    spoken = _ssml_text_with_emphasis(text, delivery.get("emphasis_terms"), voice)
+    before = f'<break time="{int(delivery["pause_before_ms"])}ms"/>' if delivery.get("pause_before_ms") else ""
+    after = f'<break time="{int(delivery["pause_after_ms"])}ms"/>' if delivery.get("pause_after_ms") else ""
+    prosody = (
+        f'<prosody rate="{_xml_attr(delivery["rate"])}" '
+        f'pitch="{_xml_attr(delivery["pitch"])}" '
+        f'volume="{_xml_attr(delivery["volume"])}">{spoken}</prosody>'
+    )
+    body = before + prosody + after
+    style = delivery.get("provider_style")
+    if style:
+        body = (
+            f'<mstts:express-as style="{_xml_attr(style)}" '
+            f'styledegree="{delivery["style_degree"]:.2f}">{body}</mstts:express-as>'
+        )
+    return (
+        f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+        f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{_xml_attr(language)}">'
+        f'<voice name="{_xml_attr(voice)}">{body}</voice></speak>'
+    )
+
+
+def _convert_mp3_to_wav(tmp_mp3, out_wav):
     subprocess.run(
         ["ffmpeg", "-y", "-i", tmp_mp3, "-ar", "24000", "-ac", "1", out_wav],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    if os.path.exists(tmp_mp3):
-        os.remove(tmp_mp3)
+
+
+async def try_edge_tts(text, voice, delivery, out_wav):
+    import edge_tts
+    tmp_mp3 = out_wav + ".mp3"
+    try:
+        communicate = edge_tts.Communicate(
+            text,
+            voice,
+            rate=delivery["rate"],
+            volume=delivery["volume"],
+            pitch=delivery["pitch"],
+        )
+        await communicate.save(tmp_mp3)
+        _convert_mp3_to_wav(tmp_mp3, out_wav)
+    finally:
+        if os.path.exists(tmp_mp3):
+            os.remove(tmp_mp3)
+
+
+def try_azure_speech(text, voice, delivery, out_wav):
+    """Synthesize one final narration string through Azure Speech REST."""
+    speech_key = os.environ.get("AZURE_SPEECH_KEY") or os.environ.get("SPEECH_KEY")
+    speech_region = os.environ.get("AZURE_SPEECH_REGION") or os.environ.get("SPEECH_REGION")
+    endpoint = os.environ.get("AZURE_SPEECH_ENDPOINT")
+    if not speech_key:
+        raise RuntimeError("Azure Speech credential is missing: set AZURE_SPEECH_KEY (or SPEECH_KEY).")
+    if not endpoint and not speech_region:
+        raise RuntimeError("Azure Speech region is missing: set AZURE_SPEECH_REGION (or SPEECH_REGION).")
+    if speech_region and not re.fullmatch(r"[A-Za-z0-9-]+", speech_region):
+        raise RuntimeError("Azure Speech region contains unexpected characters.")
+    endpoint = endpoint or f"https://{speech_region}.tts.speech.microsoft.com/cognitiveservices/v1"
+    if not endpoint.lower().startswith("https://"):
+        raise RuntimeError("Azure Speech endpoint must use HTTPS.")
+    ssml = build_azure_ssml(text, voice, delivery)
+    request = urllib.request.Request(
+        endpoint,
+        data=ssml.encode("utf-8"),
+        headers={
+            "Ocp-Apim-Subscription-Key": speech_key,
+            "Content-Type": "application/ssml+xml",
+            "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+            "User-Agent": "paper-ear",
+        },
+        method="POST",
+    )
+    tmp_mp3 = out_wav + ".mp3"
+    try:
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                payload = response.read()
+        except urllib.error.HTTPError as exc:
+            # Do not copy a provider response body into logs/reports: an error
+            # payload could echo part of the private narration request.
+            exc.read()
+            raise RuntimeError(f"Azure Speech HTTP {exc.code} ({exc.reason}).") from exc
+        if len(payload) < 1000:
+            raise RuntimeError("Azure Speech returned an empty or unexpectedly small audio payload.")
+        with open(tmp_mp3, "wb") as audio_file:
+            audio_file.write(payload)
+        _convert_mp3_to_wav(tmp_mp3, out_wav)
+    finally:
+        if os.path.exists(tmp_mp3):
+            os.remove(tmp_mp3)
 
 
 def generate_offline_dialogue_wav(text, speaker, out_wav, sample_rate=24000):
@@ -228,22 +421,39 @@ def get_wav_duration(wav_path):
         return wf.getnframes() / float(wf.getframerate())
 
 
-def synthesize_turn_audio(turn, male_voice, female_voice, out_wav):
+def synthesize_turn_audio(turn, voice_backend, voice_profile, out_wav):
     speaker = turn.get("speaker", "female").lower()
-    voice = male_voice if speaker == "male" else female_voice
+    voice = voice_profile["voice"]
     spoken_text = turn.get("spoken_text") or turn.get("zh_text") or turn.get("en_text") or ""
+    delivery = resolve_delivery(turn, voice_profile)
+    metadata = {
+        "provider": voice_backend,
+        "voice": voice,
+        "emotion": delivery["emotion"],
+        "emotion_intensity": delivery["emotion_intensity"],
+        "provider_style": delivery["provider_style"],
+        "style_degree": delivery["style_degree"],
+        "rate": delivery["rate"],
+        "pitch": delivery["pitch"],
+        "volume": delivery["volume"],
+    }
 
     try:
-        asyncio.run(try_edge_tts(spoken_text, voice, out_wav))
+        if voice_backend == "edge-tts":
+            asyncio.run(try_edge_tts(spoken_text, voice, delivery, out_wav))
+        elif voice_backend == "azure-speech":
+            try_azure_speech(spoken_text, voice, delivery, out_wav)
+        else:
+            raise ValueError(f"Unsupported voice_backend '{voice_backend}'. Choose one of {sorted(VOICE_BACKENDS)}.")
         if os.path.exists(out_wav) and os.path.getsize(out_wav) > 1000:
-            return get_wav_duration(out_wav), "edge-tts", None
+            return get_wav_duration(out_wav), voice_backend, None, metadata
     except Exception as exc:
         tts_error = f"{type(exc).__name__}: {exc}"[:500]
     else:
-        tts_error = "Edge TTS did not create a valid WAV file."
+        tts_error = f"{voice_backend} did not create a valid WAV file."
 
     dur = generate_offline_dialogue_wav(spoken_text, speaker, out_wav)
-    return dur, "offline-cadence", tts_error
+    return dur, "offline-cadence", tts_error, metadata
 
 
 def draw_corner_brackets(draw, x0, y0, x1, y1, color, length=18, width=5):
@@ -516,8 +726,13 @@ def render_video(
     paper_title = data.get("title", os.path.basename(pdf_path))
     male_name = data.get("male_name", "师兄 Alex (提问/思辨)")
     female_name = data.get("female_name", "主讲人 Lin (精读讲解)")
-    male_voice = data.get("male_voice", "zh-CN-YunxiNeural")
-    female_voice = data.get("female_voice", "zh-CN-XiaoxiaoNeural")
+    voice_backend = str(data.get("voice_backend") or "edge-tts").lower()
+    if voice_backend not in VOICE_BACKENDS:
+        raise ValueError(f"Unsupported voice_backend '{voice_backend}'. Choose one of {sorted(VOICE_BACKENDS)}.")
+    voice_profiles = {
+        "male": resolve_voice_profile(data, "male"),
+        "female": resolve_voice_profile(data, "female"),
+    }
     turns = data.get("turns", [])
     if not turns:
         raise ValueError("Dialogue script JSON contains no 'turns'.")
@@ -573,16 +788,28 @@ def render_video(
                 red_box = [0.08, 0.15, 0.92, 0.45]
 
             wav_path = os.path.join(tmpdir, f"turn_{idx:03d}.wav")
-            duration, mode, tts_error = synthesize_turn_audio(turn, male_voice, female_voice, wav_path)
+            speaker = "male" if str(turn.get("speaker", "female")).lower() == "male" else "female"
+            duration, mode, tts_error, speech_meta = synthesize_turn_audio(
+                turn,
+                voice_backend,
+                voice_profiles[speaker],
+                wav_path,
+            )
             audio_modes.add(mode)
-            turn_audio = {"turn": idx + 1, "mode": mode, "duration_seconds": round(duration, 3)}
+            turn_audio = {
+                "turn": idx + 1,
+                "mode": mode,
+                "duration_seconds": round(duration, 3),
+                **speech_meta,
+            }
             if tts_error:
                 turn_audio["tts_error"] = tts_error
             audio_mode_by_turn.append(turn_audio)
-            if require_tts and mode != "edge-tts":
+            if require_tts and mode != voice_backend:
                 raise RuntimeError(
                     f"Turn {idx + 1} fell back to '{mode}'. "
-                    "A publishable run requires real Edge TTS; check the dependency, connectivity, voice names, "
+                    f"A publishable run requires the configured provider '{voice_backend}'; check credentials, "
+                    "connectivity, voice/style compatibility, "
                     f"and narration text. Root cause: {tts_error}"
                 )
 
@@ -680,6 +907,7 @@ def render_video(
             "dpi": dpi,
             "fps": fps,
             "require_tts": bool(require_tts),
+            "voice_backend": voice_backend,
             "audio_modes": sorted(audio_modes),
             "turn_audio": audio_mode_by_turn,
             "file_size_bytes": os.path.getsize(output_mp4),
@@ -709,7 +937,7 @@ def main():
     parser.add_argument(
         "--require-tts",
         action="store_true",
-        help="Fail instead of using cadence-only fallback audio when Edge TTS is unavailable",
+        help="Fail instead of using cadence-only fallback or a provider other than voice_backend",
     )
     parser.add_argument("--export-gif", default=None, help="Optional path to export animated GIF preview")
     parser.add_argument("--report-json", default=None, help="Optional render report JSON path")

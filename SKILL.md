@@ -20,6 +20,8 @@ Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundle
 7. Treat user-supplied PDFs as local test/private inputs by default. Keep them in the run or delivery directory; never copy them into a Git repository, public example, installed Skill package, or remote service without explicit permission.
 8. For web mode, preserve searchable synthesis as text and preserve visual evidence as source-pixel crops. Never replace plots or tables with AI-redrawn approximations.
 9. Do not claim complete visual coverage from parser output alone. Visually inspect every rendered page, account for each numbered figure, table, and substantive displayed equation, and record any intentional exclusion.
+10. For online TTS, send only the final narration string plus provider controls. Never send the PDF, page images, extracted full text, evidence crops, local paths, or run artifacts. Disclose this text-only boundary before the first online synthesis.
+11. A two-speaker video must contain real evidence-driven interaction, not alternating exposition. Use `evidence-dialogue-v2` for standard/full videos and pass its deterministic interaction gate.
 
 ## Choose the output mode
 
@@ -44,6 +46,8 @@ Use one run directory so the work is resumable and inspectable:
 ├── web_qa.json
 ├── dialogue_script.json
 ├── script_qa.json
+├── voice-audition/
+├── interaction-preview.mp4
 ├── preview.mp4
 ├── final.mp4
 ├── render_report.json
@@ -216,6 +220,23 @@ Use guided mode by default. Present one compact preference checkpoint containing
 
 Do not ask questions the user already answered. If the user says to use defaults, skip the checkpoint and proceed with general-technical, standard coverage, and Chinese narration plus bilingual subtitles.
 
+### 3A. Cast and audition the voices
+
+Use Azure Speech when the user asks for human-like emotion or varied delivery. The default cast is `zh-CN-XiaoxiaoNeural` for the presenter and `zh-CN-YunjianNeural` for the discussant. Keep Edge TTS as the lightweight alternative; never imply that its rate/pitch controls equal Azure speaking styles.
+
+Read [references/voice-casting-and-dialogue.md](references/voice-casting-and-dialogue.md) before configuring voices. Show a compact casting menu only when the user has not already accepted a default. Before full rendering, synthesize one presenter line and one discussant line, then a four-turn 45–75 second micro-scene containing a claim, challenge, evidence answer, and concession/follow-up.
+
+Create a request-only audition plan when credentials are unavailable:
+
+```bash
+python <SKILL_DIR>/scripts/render_voice_auditions.py \
+  --config <run_dir>/voice_casting.json \
+  --output-dir <run_dir>/voice-audition \
+  --dry-run
+```
+
+Remove `--dry-run` only after the user accepts the provider/privacy boundary and the required credential environment variables are present. Never store credentials in project files.
+
 ### 4. Confirm the dialogue storyboard
 
 Create a short storyboard table before rendering. Each row must show:
@@ -227,7 +248,7 @@ Create a short storyboard table before rendering. Each row must show:
 - claim type;
 - the exact reported number or conclusion, if any.
 
-Use the presenter to explain the paper and the discussant to probe assumptions, mechanisms, baselines, ablations, and limitations. Avoid fake disagreement and filler banter. Keep one main teaching point per turn.
+Use the presenter to explain the paper and the discussant to probe assumptions, mechanisms, baselines, ablations, and limitations. Avoid fake disagreement and filler banter. Keep one main teaching point per turn. In a 15–20 turn standard video, include at least six substantive questions, three follow-ups, two explicit disagreements, two discovery moments, one discussant concession, one presenter self-correction, one presenter-to-discussant question, and one unresolved research question. Link every question to an evidence answer within one or two turns.
 
 Ask for confirmation only when the user requested an interactive workflow or when changing the focus would materially alter the video. Otherwise continue with the approved/default plan.
 
@@ -240,7 +261,8 @@ Important rules:
 - Use 1-indexed PDF page numbers.
 - Use normalized `red_box` coordinates `[x0, y0, x1, y1]` in the range `0.0..1.0`, with `x0 < x1` and `y0 < y1`.
 - Add a distinctive `search_text` for paragraphs, captions, and equations when text extraction can locate it.
-- Add `source_anchor` and `claim_type` to every turn.
+- Add `evidence_anchor` (or the legacy alias `source_anchor`) and `claim_type` to every turn.
+- Set `interaction_mode` to `evidence-dialogue-v2`, then add `dialogue_act`, `responds_to_turn`, `emotion`, `emotion_intensity`, `delivery`, `question_target`, and `interaction_tags` to every turn.
 - Keep subtitles concise enough to fit: split long explanations into multiple turns rather than shrinking text excessively.
 - Map every analogy back to the real mechanism before moving on.
 
@@ -256,9 +278,9 @@ python <SKILL_DIR>/scripts/validate_dialogue.py \
 
 Fix every error before rendering. Review warnings instead of suppressing them blindly.
 
-### 6. Render a fast preview
+### 6. Render casting and interaction previews
 
-Render the first two turns at lower DPI to catch wrong pages, bad crops, overflowing subtitles, awkward terminology cards, and voice problems before paying the full render cost:
+Do not use the first two generic exposition turns as a voice test. Select a coherent four-turn claim → challenge → evidence answer → concession/follow-up scene, mark it as the interaction preview, and render it at lower DPI. This catches wrong pages, bad crops, overflowing subtitles, awkward terminology cards, provider/style errors, and weak conversational timing before the full render cost:
 
 ```bash
 python <SKILL_DIR>/scripts/render_paper_video.py \
@@ -266,11 +288,12 @@ python <SKILL_DIR>/scripts/render_paper_video.py \
   --script <run_dir>/dialogue_script.json \
   --output <run_dir>/preview.mp4 \
   --dpi 110 \
-  --max-turns 2 \
+  --max-turns 4 \
+  --require-tts \
   --report-json <run_dir>/preview_render_report.json
 ```
 
-Inspect at least one frame from each preview turn. If the preview uses `offline-cadence`, treat it only as a visual timing preview; it contains no intelligible narration.
+If the best micro-scene is not at the start of the full script, write a four-turn `interaction_preview.json` preserving the original evidence fields and render that file. Inspect every preview turn and listen for contrast, pauses, stress, natural interruption points, and whether the concession sounds earned. A preview using `offline-cadence` is visual timing only and cannot pass voice approval.
 
 ### 7. Render the publishable video
 
@@ -308,7 +331,7 @@ Then sample frames at the beginning, middle, end, and every figure/table turn. F
 - every intended figure/table/equation is framed correctly;
 - subtitles and cards stay within their panels and do not obscure evidence;
 - the final file has both video and audio streams, the expected resolution, and no truncated final turn;
-- `render_report.json` reports only `edge-tts` for a publishable run.
+- `render_report.json` reports only the configured real provider (`azure-speech` or `edge-tts`) for a publishable run, with the intended voice and style on every turn.
 
 ### 9. Deliver
 
@@ -331,7 +354,9 @@ Do not create PPTX, Markdown reports, social-media cuts, or additional deliverab
 - **Browser interaction fails:** repair the HTML/CSS/JavaScript and repeat desktop plus mobile testing; a deterministic file check alone is not sufficient.
 - **Private/test PDF is inside a repository path:** move the run and delivery artifacts outside the repository before any commit or push, and confirm the source file is absent from `git status` and the staged file list.
 - **Text locator misses a figure or equation:** set `red_box` manually from the rendered page and keep `search_text` only when it resolves to the same target.
-- **TTS unavailable:** allow cadence audio only for preview. A publishable run must stop under `--require-tts`.
+- **TTS unavailable:** generate a dry-run SSML audition plan and explain which credential is missing. Cadence audio is allowed only for visual timing; voice approval and publishable runs must stop under `--require-tts`.
+- **Voice sounds synthetic:** audition two role-specific lines, reduce style intensity, add semantic pauses, shorten clauses, and verify the speaking style is actually supported by that exact voice. Do not fix flat delivery by inserting stage directions into spoken text.
+- **Dialogue feels like alternating narration:** rewrite around the weakest assumptions and strongest internal evidence, link each question to an answer, then rerun the `evidence-dialogue-v2` metrics instead of adding filler interjections.
 - **Long subtitle or card text:** split the turn or shorten the paraphrase; do not reduce the font until it becomes hard to read.
 - **Source contradiction:** prefer the table/figure for exact numbers, note the prose mismatch, and phrase the video conservatively.
 - **Missing dependency or failed QA:** repair the environment or artifact and rerun the same gate. Do not silently downgrade the output.

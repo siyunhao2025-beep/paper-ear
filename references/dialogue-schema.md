@@ -9,8 +9,11 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 | `title` | yes | Exact paper title or a faithful shortened title. |
 | `male_name` | yes in strict mode | Display name and role for the discussant. |
 | `female_name` | yes in strict mode | Display name and role for the presenter. |
-| `male_voice` | yes in strict mode | Edge TTS voice used for male turns. |
-| `female_voice` | yes in strict mode | Edge TTS voice used for female turns. |
+| `male_voice` | one voice source required | Backward-compatible male voice name; `voice_profiles.male.voice` may replace it. |
+| `female_voice` | one voice source required | Backward-compatible female voice name; `voice_profiles.female.voice` may replace it. |
+| `voice_backend` | no | `edge-tts` (backward-compatible default) or `azure-speech`. |
+| `voice_profiles` | recommended for Azure | Female/male voice, default style, emotion-to-style map, and baseline prosody. |
+| `interaction_mode` | no | Set to `evidence-dialogue-v2` to enforce real question/answer dynamics. |
 | `turns` | yes | Ordered, non-empty array of dialogue turns. |
 
 ## Turn fields
@@ -31,8 +34,37 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 | `notes` | yes in strict mode | One to three concise explanation bullets. |
 | `claim_type` | yes in strict mode | `paper_evidence`, `author_claim`, `inference`, or `critique`. |
 | `source_anchor` | yes in strict mode | Object containing `page`, `kind`, and `label`. |
+| `evidence_anchor` | alternative to `source_anchor` | Preferred v2 name for the same page/kind/label evidence object. |
+| `dialogue_act` | yes in v2 | `claim`, `challenge`, `evidence_answer`, `followup`, `concession`, or `synthesis`. |
+| `responds_to_turn` | yes in v2 | `0` or an earlier 1-based turn number; answers/follow-ups/concessions must link backward. |
+| `emotion` | yes in v2 | `neutral`, `curious`, `skeptical`, `serious`, `surprised`, `excited`, or `reflective`. |
+| `emotion_intensity` | yes in v2 | Number from `0.0` to `1.0`; semantic guidance, separate from provider style intensity. |
+| `delivery` | yes in v2 | Style/prosody/pause/emphasis object described below. |
+| `question_target` | for questions | Concrete assumption, result, baseline, or limitation being tested. |
+| `interaction_tags` | yes in v2 | Machine-readable quality tags such as `question`, `disagreement`, or `concession`. |
 
-`source_anchor.kind` must be one of `section`, `figure`, `table`, `equation`, `appendix`, or `page`. Its `page` must match the turn's `page`. Use the paper's printed label when available, such as `Figure 2`, `Table 1`, `Eq. (4)`, or `Section 3.2`.
+`source_anchor.kind` / `evidence_anchor.kind` must be one of `section`, `figure`, `table`, `equation`, `appendix`, or `page`. Its `page` must match the turn's `page`. Use the paper's printed label when available, such as `Figure 2`, `Table 1`, `Eq. (4)`, or `Section 3.2`.
+
+## Expressive delivery object
+
+```json
+{
+  "provider_style": "serious",
+  "style_degree": 1.12,
+  "rate": "-2%",
+  "pitch": "-1Hz",
+  "volume": "+0%",
+  "pause_before_ms": 160,
+  "pause_after_ms": 320,
+  "emphasis_terms": ["Figure 7", "所有高度"]
+}
+```
+
+`style_degree` accepts `0.01..2.0`; prefer `<= 1.15` for ordinary turns and `<= 1.30` for a justified peak. Pauses accept `0..5000` milliseconds. Edge TTS uses rate/pitch/volume and ignores Azure-only style semantics; Azure Speech uses the complete SSML delivery object. For the default Chinese voices, `emphasis_terms` are expressed with a slight local slowdown/pitch lift because Azure documents native word-level `<emphasis>` tuning for only a small English-voice subset.
+
+Allowed `interaction_tags` are `question`, `disagreement`, `surprise`, `concession`, `self_correction`, `reverse_question`, and `unresolved`. Use only tags that describe an actual conversational event.
+
+Read [voice-casting-and-dialogue.md](voice-casting-and-dialogue.md) for casting options, the Azure privacy boundary, audition commands, and the v2 interaction-quality gate.
 
 ## Claim types
 

@@ -225,13 +225,13 @@ python3 scripts/validate_dialogue.py \
   --strict \
   --json-out /tmp/paper-ear-run/script_qa.json
 
-# Step 4: 先低成本渲染前两轮，检查红框、放大区、字幕与声线
+# Step 4: 先低成本渲染四轮“主张→质疑→回答→让步”微场景
 python3 scripts/render_paper_video.py \
   --pdf examples/sample_paper.pdf \
   --script examples/sample_dialogue.json \
   --output /tmp/paper-ear-run/preview.mp4 \
   --dpi 110 \
-  --max-turns 2 \
+  --max-turns 4 \
   --report-json /tmp/paper-ear-run/preview_render_report.json
 
 # Step 5: 正式渲染；--require-tts 会阻止无声节拍被误当成可交付旁白
@@ -252,12 +252,37 @@ python3 scripts/verify_video.py \
 
 ## 🎙️ 男女双人语音声线配置 (Voice Configuration)
 
-在联网环境下，`scripts/render_paper_video.py` 默认调用微软 `edge-tts` 高自然度神经网络中英双语声线（天然支持中文句子里夹杂英文专业术语）。网络不可用时，脚本会生成仅用于视觉预览和时长占位的 `offline-cadence` 节拍；它**不是可听懂的旁白**。正式成片请始终启用 `--require-tts`，一旦任一轮未生成真实语音就立即失败。你可以在 `dialogue_script.json` 顶层替换男女声线组合：
+Paper-Ear 现在支持两条真实语音链路：`edge-tts` 适合无需密钥的快速神经语音，`azure-speech` 适合需要逐回合情绪、说话风格、停顿、重音和强度控制的正式成片。网络或凭据不可用时，脚本只会生成用于视觉计时的 `offline-cadence`；它**不是可听懂的旁白**。正式成片请始终启用 `--require-tts`，以阻止静默降级。
 
-| 角色定位 | JSON 字段 | 默认推荐声线 | 备选高表现力声线 | 声音风格特点 |
-| :--- | :--- | :--- | :--- | :--- |
-| **女声主讲人 (Presenter)** | `"female_voice"` | `zh-CN-XiaoxiaoNeural` | `zh-CN-XiaoyiNeural` / `en-US-JennyNeural` | 清晰自然、学术汇报感强、中英混读流畅 |
-| **男声提问者 (Discussant)** | `"male_voice"` | `zh-CN-YunxiNeural` | `zh-CN-YunjianNeural` / `en-US-GuyNeural` | 富有思辨感与追问张力，适合扮演师兄/导师角色 |
+默认“严谨组会 + 轻答辩感”选角：
+
+| 角色定位 | 默认声线 | 风格轨迹 | 备选声线 |
+| :--- | :--- | :--- | :--- |
+| **女声主讲人 (Presenter)** | `zh-CN-XiaoxiaoNeural` | `chat → serious → excited → calm` | `zh-CN-XiaoyiNeural` |
+| **男声质疑者 (Discussant)** | `zh-CN-YunjianNeural` | `narration-relaxed → serious → documentary-narration` | `zh-CN-YunxiNeural` / `zh-CN-YunyangNeural` |
+
+Azure 凭据只从环境变量读取，不写入 JSON、日志或仓库：
+
+```powershell
+$env:AZURE_SPEECH_KEY = "<your key>"
+$env:AZURE_SPEECH_REGION = "<your region>"
+```
+
+先生成不联网的 SSML 审核稿，再合成两条选角试听：
+
+```bash
+python scripts/render_voice_auditions.py \
+  --config examples/sample_voice_casting.json \
+  --output-dir /tmp/paper-ear-audition \
+  --dry-run
+
+# 配好凭据后移除 --dry-run
+python scripts/render_voice_auditions.py \
+  --config examples/sample_voice_casting.json \
+  --output-dir /tmp/paper-ear-audition
+```
+
+在线语音接口只接收最终旁白文本与 SSML 控制；PDF、全文、页面图、图表和本地路径均不会发送。完整选角、隐私边界、试听门槛与互动改写提示词见 [`references/voice-casting-and-dialogue.md`](./references/voice-casting-and-dialogue.md)。
 
 ## 📐 对话与红框配置规范 (Script JSON Schema)
 
@@ -268,13 +293,30 @@ python3 scripts/verify_video.py \
   "title": "Sparse-Ear: Dynamic Token Routing for Long-Context Reasoning",
   "male_name": "师兄 Alex (提问/思辨)",
   "female_name": "主讲人 Lin (精读讲解)",
-  "male_voice": "zh-CN-YunxiNeural",
+  "voice_backend": "azure-speech",
+  "male_voice": "zh-CN-YunjianNeural",
   "female_voice": "zh-CN-XiaoxiaoNeural",
   "turns": [
     {
       "page": 1,
       "section_tag": "Page 1 • Abstract & Motivation",
       "speaker": "female",
+      "dialogue_act": "claim",
+      "responds_to_turn": 0,
+      "emotion": "serious",
+      "emotion_intensity": 0.55,
+      "delivery": {
+        "provider_style": "serious",
+        "style_degree": 1.08,
+        "rate": "+0%",
+        "pitch": "+0Hz",
+        "volume": "+0%",
+        "pause_before_ms": 100,
+        "pause_after_ms": 300,
+        "emphasis_terms": ["O(N²)"]
+      },
+      "question_target": "",
+      "interaction_tags": [],
       "zh_text": "大家好！今天组会我们精读这篇 Sparse-Ear 论文。先看红框里的摘要，它主要解决长序列下自注意力 O(N²) 复杂度痛点。",
       "en_text": "Hi everyone! Today we're presenting Sparse-Ear. Looking at the highlighted Abstract, it tackles the O(N^2) complexity bottleneck.",
       "search_text": "Abstract",
@@ -286,7 +328,7 @@ python3 scripts/verify_video.py \
         "本文提出动态稀疏路由 (Dynamic Token Routing)，兼顾速度与跨段落推理精度"
       ],
       "claim_type": "author_claim",
-      "source_anchor": {
+      "evidence_anchor": {
         "page": 1,
         "kind": "section",
         "label": "Abstract"
@@ -296,7 +338,7 @@ python3 scripts/verify_video.py \
 }
 ```
 
-每一轮都应使用 `source_anchor` 记录证据所在页及章节/图/表/公式标签，并用 `claim_type` 区分论文证据、作者主张、讲解者推断和批评。完整字段、几何规则与示例见 [`references/dialogue-schema.md`](./references/dialogue-schema.md)。
+每一轮都应使用 `evidence_anchor`（兼容旧字段 `source_anchor`）记录证据所在页及章节/图/表/公式标签，并用 `claim_type` 区分论文证据、作者主张、讲解者推断和批评。启用 `evidence-dialogue-v2` 后，严格校验器还会检查质疑比例、追问、分歧、让步、自我修正、未决问题，以及每个问题是否在一到两轮内得到证据回应。完整字段、几何规则与示例见 [`references/dialogue-schema.md`](./references/dialogue-schema.md)。
 
 ## 📂 仓库目录结构 (Repository Layout)
 
@@ -320,6 +362,7 @@ paper-ear/
 │   └── web-reader/                  # 完全本地的 HTML/CSS/JS 阅读器模板
 ├── references/
 │   ├── dialogue-schema.md           # 带证据锚点与声明类型的完整剧本规范
+│   ├── voice-casting-and-dialogue.md # 声线选角、Azure 隐私边界、试听与互动提示词
 │   ├── quality-checklist.md         # 内容、视觉、音频与媒体发布检查表
 │   ├── web-brief-schema.md          # 网页证据地图、视觉清单与声明类型规范
 │   ├── web-quality-checklist.md     # 网页内容、交互、移动端与离线验收清单
@@ -331,11 +374,13 @@ paper-ear/
 │   ├── render_paper_web.py          # 离线交互式网页与原页定位图生成器
 │   ├── verify_web_reader.py         # 本地资源、图片、DOM 与清单一致性验收工具
 │   ├── validate_dialogue.py          # 环境、PDF、剧本与证据字段严格校验器
+│   ├── render_voice_auditions.py     # 不读取 PDF 的文本级声线试听与 SSML 预审
 │   ├── render_paper_video.py         # 1080p MP4 合成引擎（红框 + 双语字幕 + TTS）
 │   └── verify_video.py               # 分辨率、音视频流、时长与同步验收工具
 └── examples/
     ├── sample_paper.pdf             # 示例双页学术论文 PDF（含公式、架构图与消融实验表）
     ├── sample_dialogue.json         # 示例 5 轮男女组会对话与红框坐标配置
+    ├── sample_voice_casting.json    # Azure 默认选角、情绪映射与试听台词
     ├── sample_web_brief.json        # 示例网页证据地图与完整视觉清单
     ├── web-reader-demo/             # 可直接打开的离线网页成品
     └── paper_ear_demo.mp4           # 实际渲染生成的 1080p 组会讲解示例视频

@@ -1,0 +1,77 @@
+{
+  "voice_backend": "azure-speech",
+  "female_voice": "zh-CN-XiaoxiaoNeural",
+  "male_voice": "zh-CN-YunjianNeural",
+  "voice_profiles": {
+    "female": {
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "default_style": "chat",
+      "style_degree": 1.08,
+      "rate": "+1%",
+      "pitch": "+0Hz",
+      "volume": "+0%",
+      "styles_by_emotion": {
+        "neutral": "chat",
+        "curious": "chat",
+        "skeptical": "serious",
+        "serious": "serious",
+        "surprised": "excited",
+        "excited": "excited",
+        "reflective": "calm"
+      }
+    },
+    "male": {
+      "voice": "zh-CN-YunjianNeural",
+      "default_style": "narration-relaxed",
+      "style_degree": 1.1,
+      "rate": "-2%",
+      "pitch": "-2Hz",
+      "volume": "+0%",
+      "styles_by_emotion": {
+        "neutral": "narration-relaxed",
+        "curious": "narration-relaxed",
+        "skeptical": "serious",
+        "serious": "serious",
+        "surprised": "documentary-narration",
+        "excited": "documentary-narration",
+        "reflective": "documentary-narration"
+      }
+    }
+  },
+  "auditions": [
+    {
+      "id": "presenter-evidence-pivot",
+      "speaker": "female",
+      "text": "先别急着看相关系数。真正有诊断力的是构型切换前后的同步变化——这可不像随机噪声。",
+      "emotion": "excited",
+      "emotion_intensity": 0.68,
+      "delivery": {
+        "provider_style": "excited",
+        "style_degree": 1.18,
+        "rate": "+2%",
+        "pitch": "+1Hz",
+        "volume": "+0%",
+        "pause_before_ms": 120,
+        "pause_after_ms": 360,
+        "emphasis_terms": ["真正有诊断力", "不像随机噪声"]
+      }
+    },
+    {
+      "id": "discussant-method-challenge",
+      "speaker": "male",
+      "text": "等等，我有个问题。如果两组观测并不严格共址，我们凭什么排除真实的时空变化？",
+      "emotion": "skeptical",
+      "emotion_intensity": 0.64,
+      "delivery": {
+        "provider_style": "serious",
+        "style_degree": 1.16,
+        "rate": "-4%",
+        "pitch": "-2Hz",
+        "volume": "+0%",
+        "pause_before_ms": 180,
+        "pause_after_ms": 420,
+        "emphasis_terms": ["并不严格共址", "凭什么"]
+      }
+    }
+  ]
+}
