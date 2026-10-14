@@ -2,8 +2,8 @@
 set -e
 git init
 git branch -M main
-git add SKILL.md README.md requirements.txt assets/ scripts/ examples/
-git commit -m "feat: upgrade paper-ear skill with visual showcase, demo video, GIF preview, and flagship README"
+git add .gitignore SKILL.md README.md LICENSE requirements.txt agents/ references/ assets/ scripts/ examples/
+git commit -m "feat: update paper-ear skill"
 git remote remove origin 2>/dev/null || true
 git remote add origin https://github.com/siyunhao2025-beep/paper-ear.git
 git push -u origin main

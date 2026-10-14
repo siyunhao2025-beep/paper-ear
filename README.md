@@ -138,28 +138,55 @@ pip install -r requirements.txt
 
 ### 3. 方式二：命令行 CLI 独立运行
 
-你也可以直接在本地终端调用 `scripts/` 下的两个核心脚本：
+你也可以直接在本地终端执行完整的「预检 → 解析 → 剧本校验 → 快速预览 → 正式渲染 → 成片验收」流程。所有中间文件统一放在一个运行目录中，失败后可以从对应阶段继续：
 
 ```bash
-# Step 1: 解析 PDF 页面结构、段落/图表归一化坐标 [x0, y0, x1, y1]，并导出页面预览图
+# Step 1: 检查 PDF、Python 依赖与 ffmpeg / ffprobe / pdftoppm
+python3 scripts/validate_dialogue.py \
+  --pdf examples/sample_paper.pdf
+
+# Step 2: 解析 PDF 页面结构、段落/图表归一化坐标，并导出页面预览图
 python3 scripts/inspect_paper.py \
   --pdf examples/sample_paper.pdf \
-  --out /tmp/paper_structure.json \
-  --render-dir /tmp/paper_pages \
+  --out /tmp/paper-ear-run/paper_structure.json \
+  --render-dir /tmp/paper-ear-run/pages \
   --dpi 150
 
-# Step 2: 根据对话与红框脚本渲染输出 1080p MP4 视频（可选同时导出 README 动图预览）
+# Step 3: 严格校验页码、红框、证据锚点、声明类型和字幕长度
+python3 scripts/validate_dialogue.py \
+  --pdf examples/sample_paper.pdf \
+  --script examples/sample_dialogue.json \
+  --strict \
+  --json-out /tmp/paper-ear-run/script_qa.json
+
+# Step 4: 先低成本渲染前两轮，检查红框、放大区、字幕与声线
 python3 scripts/render_paper_video.py \
   --pdf examples/sample_paper.pdf \
   --script examples/sample_dialogue.json \
-  --output examples/paper_ear_demo.mp4 \
+  --output /tmp/paper-ear-run/preview.mp4 \
+  --dpi 110 \
+  --max-turns 2 \
+  --report-json /tmp/paper-ear-run/preview_render_report.json
+
+# Step 5: 正式渲染；--require-tts 会阻止无声节拍被误当成可交付旁白
+python3 scripts/render_paper_video.py \
+  --pdf examples/sample_paper.pdf \
+  --script examples/sample_dialogue.json \
+  --output /tmp/paper-ear-run/final.mp4 \
   --dpi 180 \
-  --export-gif assets/demo_preview.gif
+  --fps 12 \
+  --require-tts \
+  --report-json /tmp/paper-ear-run/render_report.json
+
+# Step 6: 验证 1080p 分辨率、音视频流、时长与 A/V 漂移
+python3 scripts/verify_video.py \
+  --video /tmp/paper-ear-run/final.mp4 \
+  --json-out /tmp/paper-ear-run/video_qa.json
 ```
 
 ## 🎙️ 男女双人语音声线配置 (Voice Configuration)
 
-在联网环境下，`scripts/render_paper_video.py` 默认调用微软 `edge-tts` 高自然度神经网络中英双语声线（天然支持中文句子里夹杂英文专业术语）；在无网隔离环境下则自动无缝切换为离线节拍音频合成。你可以在 `dialogue_script.json` 顶层自由替换喜欢的男女声线组合：
+在联网环境下，`scripts/render_paper_video.py` 默认调用微软 `edge-tts` 高自然度神经网络中英双语声线（天然支持中文句子里夹杂英文专业术语）。网络不可用时，脚本会生成仅用于视觉预览和时长占位的 `offline-cadence` 节拍；它**不是可听懂的旁白**。正式成片请始终启用 `--require-tts`，一旦任一轮未生成真实语音就立即失败。你可以在 `dialogue_script.json` 顶层替换男女声线组合：
 
 | 角色定位 | JSON 字段 | 默认推荐声线 | 备选高表现力声线 | 声音风格特点 |
 | :--- | :--- | :--- | :--- | :--- |
@@ -191,35 +218,64 @@ python3 scripts/render_paper_video.py \
       "notes": [
         "传统 Transformer 在 128K 长文本下显存与计算开销呈二次方暴涨",
         "本文提出动态稀疏路由 (Dynamic Token Routing)，兼顾速度与跨段落推理精度"
-      ]
+      ],
+      "claim_type": "author_claim",
+      "source_anchor": {
+        "page": 1,
+        "kind": "section",
+        "label": "Abstract"
+      }
     }
   ]
 }
 ```
 
+每一轮都应使用 `source_anchor` 记录证据所在页及章节/图/表/公式标签，并用 `claim_type` 区分论文证据、作者主张、讲解者推断和批评。完整字段、几何规则与示例见 [`references/dialogue-schema.md`](./references/dialogue-schema.md)。
+
 ## 📂 仓库目录结构 (Repository Layout)
 
 ```text
 paper-ear/
-├── SKILL.md                         # Agent Skill 核心定义与多轮交互指令
+├── .gitignore                       # 忽略 Python 缓存、虚拟环境与本地运行目录
+├── SKILL.md                         # Agent Skill 核心定义与证据约束工作流
 ├── README.md                        # 项目主页文档（含视觉预览、架构图与使用说明）
+├── LICENSE                          # MIT 开源协议
 ├── requirements.txt                 # Python 依赖包列表
 ├── push_to_github.sh                # macOS / Linux 一键推送至 GitHub 脚本
 ├── push_to_github.bat               # Windows 一键推送至 GitHub 脚本
+├── agents/
+│   └── openai.yaml                  # Skill 展示名称、简介与默认提示词
 ├── assets/
 │   ├── hero_banner.jpg              # 项目顶部视觉横幅海报
 │   ├── demo_preview.gif             # 5 轮红框追踪与男女对话动态预览 GIF
 │   ├── frame_anatomy.png            # 视频画面五大核心区域拆解标注图
 │   └── workflow_diagram.png         # 多轮交互式工作流与系统架构图
+├── references/
+│   ├── dialogue-schema.md            # 带证据锚点与声明类型的完整剧本规范
+│   └── quality-checklist.md          # 内容、视觉、音频与媒体发布检查表
 ├── scripts/
 │   ├── inspect_paper.py             # PDF 页面尺寸、文本块/图表归一化坐标提取工具
-│   └── render_paper_video.py        # 1080p MP4 视频合成引擎（红框追踪 + 双语字幕 + TTS）
+│   ├── validate_dialogue.py          # 环境、PDF、剧本与证据字段严格校验器
+│   ├── render_paper_video.py         # 1080p MP4 合成引擎（红框 + 双语字幕 + TTS）
+│   └── verify_video.py               # 分辨率、音视频流、时长与同步验收工具
 └── examples/
     ├── sample_paper.pdf             # 示例双页学术论文 PDF（含公式、架构图与消融实验表）
     ├── sample_dialogue.json         # 示例 5 轮男女组会对话与红框坐标配置
     └── paper_ear_demo.mp4           # 实际渲染生成的 1080p 组会讲解示例视频
 ```
 
+## 🔎 同类项目调研与设计取舍 (Prior Art & Design Decisions)
+
+Paper-Ear 的升级参考了多个开源工作流中的成熟原则：
+
+- [Microsoft ResearchStudio](https://github.com/microsoft/ResearchStudio)：明确的阶段产物、严格质量门和可验收输出契约。
+- [OvOhao/paper-explainer](https://github.com/OvOhao/paper-explainer)：把作者主张、论文证据和讲解者推断分开表达。
+- [z-mu-z/paper-explainer-video-skill](https://github.com/z-mu-z/paper-explainer-video-skill) 与 [lunamos/paper2video](https://github.com/lunamos/paper2video)：优先展示论文真实图表、用媒体探针和抽帧检查成片。
+- [jessedc/text-to-podcast](https://github.com/jessedc/text-to-podcast) 与 [UNESCO/pdf-to-podcast](https://github.com/unesco/pdf-to-podcast)：前置依赖检查、可恢复的分阶段运行、面向不同受众的讲解深度。
+- [AbigaleD/paper-explainer-video](https://github.com/AbigaleD/paper-explainer-video) 与 [edwardyen724-g/paper2video](https://github.com/edwardyen724-g/paper2video)：旁白先行的时序设计、低成本预览与发布前校验。
+
+这些项目提供的是设计启发；本仓库没有复制其实现代码。Paper-Ear 继续保留自己的核心组合：**原始 PDF 页面、精确红框与同步放大、男女双人组会讨论、中英双语字幕**。
+
 ## 📄 开源协议 (License)
 
-本项目基于 [MIT License](https://opensource.org/licenses/MIT) 开源，欢迎提交 Issue 与 Pull Request 共同扩展更多组会汇报模板！
+本项目基于仓库内的 [MIT License](./LICENSE) 开源，欢迎提交 Issue 与 Pull Request 共同扩展更多组会汇报模板！

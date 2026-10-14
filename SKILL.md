@@ -1,125 +1,202 @@
 ---
 name: paper-ear
-description: >-
-  Turn academic PDF papers into group-meeting style MP4 videos featuring a
-  male-female conversational dialogue, synchronized Chinese-English bilingual
-  subtitles, and dynamic red-box highlighting on the exact PDF paragraphs,
-  equations, and figures being discussed. Use whenever the user mentions
-  paper-ear, asks to turn a PDF paper into a video or MP4 explanation, or wants
-  an interactive group-meeting presentation from a research paper.
+description: Turn academic-paper PDFs into evidence-grounded 1080p MP4 group-meeting videos with two-speaker dialogue, synchronized Chinese-English subtitles, and page-accurate red-box plus zoom tracking. Use when the user mentions paper-ear; asks to convert a research paper, PDF, or arXiv paper into a video or MP4 explanation; wants a bilingual paper walkthrough or lab-meeting presentation; or wants exact passages, equations, figures, and tables highlighted while they are discussed.
 ---
 
-# paper-ear
+# Paper Ear
 
-Generate a group-meeting style 1080p MP4 video from an academic PDF paper after a structured multi-turn interaction with the user. The output MP4 features a male-female dialogue with animated speaker waveforms, synchronized Chinese-English subtitles, a dynamic red bounding box with target corner brackets on the exact paragraph, formula, table, or figure being explained, and a live zoomed-in callout view alongside a technical terminology card.
+Create a two-speaker research-paper walkthrough that stays visibly tied to the source PDF. The final video combines a presenter and a critical discussant, bilingual subtitles, page-accurate red-box tracking, a synchronized zoom panel, and compact terminology cards.
 
-## When to Use
+Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundled scripts with absolute paths under `<SKILL_DIR>`; do not assume the current working directory is the skill directory.
 
-- The user uploads or references a research paper PDF and asks to explain it as an MP4 video or group-meeting presentation.
-- The user invokes `paper-ear` to read, dissect, or present a paper with bilingual narration and visual red-box tracking.
-- The user wants a two-person (male and female) academic discussion video highlighting specific innovations, technical terms, or sections of a PDF.
+## Core contract
 
-## Steps
+1. Treat the supplied PDF as the source of truth. Read the full accessible paper, including appendices relevant to claims shown in the video.
+2. Anchor every factual statement, number, method detail, and experimental conclusion to a PDF page plus a section, figure, table, equation, or page label. If the source cannot be located, omit the statement or label it as not found.
+3. Set each turn's `claim_type` to `paper_evidence`, `author_claim`, `inference`, or `critique`. Never blend an inference or critique into the authors' reported result.
+4. Paraphrase the paper. Use short quotations only when exact wording is essential.
+5. Do not guess at unreadable scans, tables, equations, or cropped figures. Report the unreadable region, try OCR or visual inspection when available, and lower the claim ceiling accordingly.
+6. Do not silently deliver cadence-only fallback audio as narration. A publishable video must complete with real TTS under `--require-tts`.
 
-### Step 1: Parse the PDF Structure and Coordinates
+## Run layout
 
-Run the bundled `scripts/inspect_paper.py` script on the user's PDF to extract text blocks, normalized bounding boxes (`[x0, y0, x1, y1]`), image coordinates, and rendered page PNGs:
+Use one run directory so the work is resumable and inspectable:
+
+```text
+<run_dir>/
+├── paper_structure.json
+├── pages/
+├── dialogue_script.json
+├── script_qa.json
+├── preview.mp4
+├── final.mp4
+├── render_report.json
+├── video_qa.json
+└── snapshots/
+```
+
+Keep intermediate artifacts in the run directory. Deliver the final MP4; provide QA artifacts only when the user asks or when a warning needs explanation.
+
+## Workflow
+
+### 1. Preflight the source and environment
+
+Require a readable local PDF. If the user supplied a lawful public URL, download the PDF first. Do not claim success from an abstract page alone.
+
+Check the PDF and required tools before doing content work:
 
 ```bash
-python3 skills/paper-ear/scripts/inspect_paper.py \
-  --pdf /path/to/input.pdf \
-  --out /tmp/paper_structure.json \
-  --render-dir /tmp/paper_pages \
+python <SKILL_DIR>/scripts/validate_dialogue.py \
+  --pdf /absolute/path/to/paper.pdf
+```
+
+Stop and explain any missing hard dependency. The renderer requires Python packages from `requirements.txt`, plus `ffmpeg`, `ffprobe`, and Poppler's `pdftoppm` on `PATH`.
+
+### 2. Inspect the full paper
+
+Extract text blocks, normalized coordinates, detected image regions, and rendered page images:
+
+```bash
+python <SKILL_DIR>/scripts/inspect_paper.py \
+  --pdf /absolute/path/to/paper.pdf \
+  --out <run_dir>/paper_structure.json \
+  --render-dir <run_dir>/pages \
   --dpi 150
 ```
 
-Read `/tmp/paper_structure.json` (and inspect key page PNGs in `/tmp/paper_pages/` using `view_file` when locating multi-panel figures or equations) to identify the paper's title, section structure, core contributions, and key domain terminology.
+Read `paper_structure.json` and inspect the relevant page PNGs. Build a compact evidence map covering:
 
-### Step 2: Round 1 Interaction - Select Focus, Terms, and Sections
+- the research problem and the limitation claimed by the authors;
+- two to four core contributions;
+- the method flow and important notation;
+- headline experiments, settings, metrics, and exact reported numbers;
+- limitations or scope boundaries stated in the paper;
+- candidate paragraphs, equations, figures, and tables for visual highlighting.
 
-Do not generate the MP4 video on the first turn. Instead, present a brief summary of what you detected in the PDF and ask the user to choose their preferences across three dimensions:
+For every candidate visual, record its page, label, normalized bounding box, and the claim it supports. For figures and tables, include the complete visual and its caption when practical; text extraction alone does not reveal the full vector-art boundary.
 
-- **Core Innovation Focus (选择创新点)**: List the 2 to 4 core contributions identified in the paper and ask which innovation points to emphasize.
-- **Technical Terminology Depth (解析专业名词)**: List 4 to 6 key technical terms or acronyms from the paper and ask whether to explain them from first principles (cross-domain/beginner mode) or focus on advanced mechanism details (expert mode).
-- **Target Sections and Figures (解读哪部分内容)**: Ask whether to cover the full paper (Motivation, Method, Experiments, Conclusion) or zoom in on specific sections, equations, or figures.
+### 3. Resolve audience, focus, and depth
 
-### Step 3: Round 2 Interaction - Confirm Dialogue Plan and Red-Box Targets
+Use guided mode by default. Present one compact preference checkpoint containing:
 
-After the user responds to Round 1, synthesize their choices into a structured **Male-Female Dialogue Plan** and ask for final confirmation or adjustments before rendering:
+- **Audience:** novice, general technical, or expert.
+- **Focus:** the detected two to four contributions or a user-named section.
+- **Coverage:** concise overview, standard full-paper walkthrough, or deep method/experiment focus.
+- **Language:** Chinese narration with Chinese-English subtitles by default, or the user's requested language arrangement.
 
-- **Speaker Roles**: Present the conversational setup between the female presenter (`主讲人`, leading the paper walkthrough) and the male discussant (`师兄/提问者`, asking critical questions about motivation, baselines, equations, and terminology).
-- **Page-by-Page Red-Box Map**: List the planned dialogue scenes, indicating which PDF page and which specific element (abstract claim, architecture figure, equation, or ablation table) will be framed in a red box (`红框`) during each exchange.
-- **Adjustment Prompt**: Ask the user if they want to add any specific group-meeting questions, tweak the focus of any section, or start rendering the MP4 immediately.
+Do not ask questions the user already answered. If the user says to use defaults, skip the checkpoint and proceed with general-technical, standard coverage, and Chinese narration plus bilingual subtitles.
 
-### Step 4: Construct the Dialogue and Red-Box Script JSON
+### 4. Confirm the dialogue storyboard
 
-Once the user confirms the plan (after the multi-turn customization), create a `dialogue_script.json` file that maps every conversational turn to an exact region on the PDF page:
+Create a short storyboard table before rendering. Each row must show:
 
-```json
-{
-  "title": "Paper Title Here",
-  "male_name": "师兄 Alex (提问/思辨)",
-  "female_name": "主讲人 Lin (精读讲解)",
-  "male_voice": "zh-CN-YunxiNeural",
-  "female_voice": "zh-CN-XiaoxiaoNeural",
-  "turns": [
-    {
-      "page": 1,
-      "section_tag": "Page 1 • Abstract & Motivation",
-      "speaker": "female",
-      "zh_text": "大家好，今天组会我们精读这篇论文，先看红框里摘要指出的核心痛点。",
-      "en_text": "Hi everyone, today we are reading this paper, starting with the core bottleneck highlighted in the Abstract.",
-      "search_text": "Abstract",
-      "red_box": [0.10, 0.20, 0.90, 0.42],
-      "box_label": "Abstract / 核心背景与痛点",
-      "card_title": "💡 核心背景与痛点 (Motivation)",
-      "notes": [
-        "传统方法在长序列推理下计算开销呈二次方增长",
-        "本文提出轻量化稀疏注意力机制解决内存瓶颈"
-      ]
-    },
-    {
-      "page": 2,
-      "section_tag": "Page 2 • Terminology & Mechanism",
-      "speaker": "male",
-      "zh_text": "这里有个关键专业名词 Sparse Routing，它和传统的 Top-K 门控有什么本质区别？",
-      "en_text": "There is a key term here, Sparse Routing. How does it fundamentally differ from standard Top-K gating?",
-      "search_text": "Sparse Routing",
-      "red_box": [0.08, 0.45, 0.48, 0.72],
-      "box_label": "专业名词解析: Sparse Routing",
-      "card_title": "📖 专业名词解析 (Terminology)",
-      "notes": [
-        "Sparse Routing (稀疏路由): 动态分配计算资源的门控机制",
-        "核心优势: 避免硬截断带来的梯度消失，保持端到端可微"
-      ]
-    }
-  ]
-}
-```
+- turn number and speaker;
+- teaching point or critical question;
+- PDF page and source anchor;
+- red-box target;
+- claim type;
+- the exact reported number or conclusion, if any.
 
-Follow these rules when constructing `turns`:
+Use the presenter to explain the paper and the discussant to probe assumptions, mechanisms, baselines, ablations, and limitations. Avoid fake disagreement and filler banter. Keep one main teaching point per turn.
 
-- Alternate naturally between `"female"` and `"male"` speakers so the video feels like an authentic, interactive lab group meeting.
-- Provide accurate `red_box` normalized coordinates `[x0, y0, x1, y1]` (ranging from `0.0` to `1.0` relative to page width and height) taken from `inspect_paper.py` or visual inspection of the rendered page PNGs.
-- Also populate `search_text` with a distinctive phrase from that paragraph or caption so `render_paper_video.py` can automatically locate or refine text bounding boxes.
-- For figures, architecture diagrams, and tables, always verify the full visual extent `[x0, y0, x1, y1]` on the rendered page PNG so the red box frames the entire diagram plus its caption cleanly.
+Ask for confirmation only when the user requested an interactive workflow or when changing the focus would materially alter the video. Otherwise continue with the approved/default plan.
 
-### Step 5: Render and Deliver Only the MP4 Video
+### 5. Write and validate the dialogue script
 
-Execute `scripts/render_paper_video.py` to synthesize the audio track, draw the red bounding boxes, corner target brackets, zoomed callout views, speaker waveforms, and bilingual subtitles, and encode the final 1080p MP4:
+Write `<run_dir>/dialogue_script.json`. Read [references/dialogue-schema.md](references/dialogue-schema.md) for the complete field contract and example.
+
+Important rules:
+
+- Use 1-indexed PDF page numbers.
+- Use normalized `red_box` coordinates `[x0, y0, x1, y1]` in the range `0.0..1.0`, with `x0 < x1` and `y0 < y1`.
+- Add a distinctive `search_text` for paragraphs, captions, and equations when text extraction can locate it.
+- Add `source_anchor` and `claim_type` to every turn.
+- Keep subtitles concise enough to fit: split long explanations into multiple turns rather than shrinking text excessively.
+- Map every analogy back to the real mechanism before moving on.
+
+Run the strict gate:
 
 ```bash
-python3 skills/paper-ear/scripts/render_paper_video.py \
-  --pdf /path/to/input.pdf \
-  --script /tmp/dialogue_script.json \
-  --output /working_dir/<conversation_id>/artifacts/file_generation/ttl=63d/output/paper_ear_meeting.mp4 \
-  --dpi 180
+python <SKILL_DIR>/scripts/validate_dialogue.py \
+  --pdf /absolute/path/to/paper.pdf \
+  --script <run_dir>/dialogue_script.json \
+  --strict \
+  --json-out <run_dir>/script_qa.json
 ```
 
-Verify that the output `.mp4` file exists and is non-empty, then present **only** the MP4 video to the user using `google:show_file`. Do not output extra PPTX or Markdown files unless the user explicitly asks for them.
+Fix every error before rendering. Review warnings instead of suppressing them blindly.
 
-## Gotchas
+### 6. Render a fast preview
 
-- **Never skip the multi-turn interaction**: Even if the user uploads a PDF and says "run paper-ear", always complete the interactive selection rounds first unless the user explicitly says "skip questions and use defaults".
-- **Verify figure bounding boxes visually**: `pdfplumber` text blocks only cover text captions, not vector drawings. When highlighting a figure or architecture diagram, inspect the rendered PNG page from `inspect_paper.py` to set `red_box` coordinates that cover the entire visual figure.
-- **Audio environment transparency**: `render_paper_video.py` uses `edge-tts` neural male/female voices (`zh-CN-YunxiNeural` and `zh-CN-XiaoxiaoNeural`) when internet access is available (such as in a local GitHub clone), and automatically falls back to offline acoustic turn-cadence timing in air-gapped environments. Briefly note this when delivering videos rendered in an offline environment.
+Render the first two turns at lower DPI to catch wrong pages, bad crops, overflowing subtitles, awkward terminology cards, and voice problems before paying the full render cost:
+
+```bash
+python <SKILL_DIR>/scripts/render_paper_video.py \
+  --pdf /absolute/path/to/paper.pdf \
+  --script <run_dir>/dialogue_script.json \
+  --output <run_dir>/preview.mp4 \
+  --dpi 110 \
+  --max-turns 2 \
+  --report-json <run_dir>/preview_render_report.json
+```
+
+Inspect at least one frame from each preview turn. If the preview uses `offline-cadence`, treat it only as a visual timing preview; it contains no intelligible narration.
+
+### 7. Render the publishable video
+
+After the preview passes, render the full video with real TTS required:
+
+```bash
+python <SKILL_DIR>/scripts/render_paper_video.py \
+  --pdf /absolute/path/to/paper.pdf \
+  --script <run_dir>/dialogue_script.json \
+  --output <run_dir>/final.mp4 \
+  --dpi 180 \
+  --fps 12 \
+  --require-tts \
+  --report-json <run_dir>/render_report.json
+```
+
+Add `--export-gif <path>` only when the user also wants a README preview. If `--require-tts` fails, repair connectivity, the voice name, or the narration text; do not remove the flag merely to force a nominal success.
+
+### 8. Verify the final artifact
+
+Run the deterministic media gate:
+
+```bash
+python <SKILL_DIR>/scripts/verify_video.py \
+  --video <run_dir>/final.mp4 \
+  --expect-width 1920 \
+  --expect-height 1080 \
+  --json-out <run_dir>/video_qa.json
+```
+
+Then sample frames at the beginning, middle, end, and every figure/table turn. Follow [references/quality-checklist.md](references/quality-checklist.md). Do not report completion until:
+
+- script validation has no errors;
+- all factual turns have valid source anchors;
+- every intended figure/table/equation is framed correctly;
+- subtitles and cards stay within their panels and do not obscure evidence;
+- the final file has both video and audio streams, the expected resolution, and no truncated final turn;
+- `render_report.json` reports only `edge-tts` for a publishable run.
+
+### 9. Deliver
+
+Present the final MP4 and briefly state:
+
+- the selected audience/focus;
+- the number of dialogue turns;
+- whether real TTS was used;
+- which validation gates passed;
+- any remaining limitation, such as an unreadable source figure.
+
+Do not create PPTX, Markdown reports, social-media cuts, or additional deliverables unless the user requests them.
+
+## Failure handling
+
+- **Scanned or image-only PDF:** attempt OCR if an available PDF/OCR tool supports it; otherwise identify unreadable pages and avoid unsupported details.
+- **Text locator misses a figure or equation:** set `red_box` manually from the rendered page and keep `search_text` only when it resolves to the same target.
+- **TTS unavailable:** allow cadence audio only for preview. A publishable run must stop under `--require-tts`.
+- **Long subtitle or card text:** split the turn or shorten the paraphrase; do not reduce the font until it becomes hard to read.
+- **Source contradiction:** prefer the table/figure for exact numbers, note the prose mismatch, and phrase the video conservatively.
+- **Missing dependency or failed QA:** repair the environment or artifact and rerun the same gate. Do not silently downgrade the output.

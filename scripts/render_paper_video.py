@@ -29,12 +29,20 @@ from PIL import Image, ImageDraw, ImageFont
 FONT_REGULAR_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/STHeiti Medium.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ]
 
 FONT_BOLD_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "C:/Windows/Fonts/msyhbd.ttc",
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
+    "/System/Library/Fonts/PingFang.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
 
@@ -44,6 +52,12 @@ def strip_unsupported_emoji(text):
     if not text:
         return ""
     return re.sub(r"[\U00010000-\U0010ffff\u2600-\u27bf\ufe0f]", "", text).strip()
+
+
+def page_file_sort_key(path):
+    """Sort pdftoppm outputs numerically so page-10 never precedes page-2."""
+    match = re.search(r"-(\d+)\.png$", os.path.basename(path), flags=re.IGNORECASE)
+    return (int(match.group(1)), path) if match else (math.inf, path)
 
 
 def load_font(candidates, size):
@@ -222,12 +236,14 @@ def synthesize_turn_audio(turn, male_voice, female_voice, out_wav):
     try:
         asyncio.run(try_edge_tts(spoken_text, voice, out_wav))
         if os.path.exists(out_wav) and os.path.getsize(out_wav) > 1000:
-            return get_wav_duration(out_wav), "edge-tts"
-    except Exception:
-        pass
+            return get_wav_duration(out_wav), "edge-tts", None
+    except Exception as exc:
+        tts_error = f"{type(exc).__name__}: {exc}"[:500]
+    else:
+        tts_error = "Edge TTS did not create a valid WAV file."
 
     dur = generate_offline_dialogue_wav(spoken_text, speaker, out_wav)
-    return dur, "offline-cadence"
+    return dur, "offline-cadence", tts_error
 
 
 def draw_corner_brackets(draw, x0, y0, x1, y1, color, length=18, width=5):
@@ -483,7 +499,17 @@ def render_frame(
     return canvas.convert("RGB")
 
 
-def render_video(pdf_path, script_json_path, output_mp4, dpi=180, fps=12, export_gif=None):
+def render_video(
+    pdf_path,
+    script_json_path,
+    output_mp4,
+    dpi=180,
+    fps=12,
+    export_gif=None,
+    max_turns=None,
+    require_tts=False,
+    report_json=None,
+):
     with open(script_json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -495,6 +521,13 @@ def render_video(pdf_path, script_json_path, output_mp4, dpi=180, fps=12, export
     turns = data.get("turns", [])
     if not turns:
         raise ValueError("Dialogue script JSON contains no 'turns'.")
+    source_turn_count = len(turns)
+    if max_turns is not None:
+        if max_turns < 1:
+            raise ValueError("max_turns must be at least 1.")
+        turns = turns[:max_turns]
+    if fps < 1:
+        raise ValueError("fps must be at least 1.")
 
     fonts = {
         "header": load_font(FONT_BOLD_CANDIDATES, 24),
@@ -513,7 +546,8 @@ def render_video(pdf_path, script_json_path, output_mp4, dpi=180, fps=12, export
         page_prefix = os.path.join(tmpdir, "page")
         subprocess.run(["pdftoppm", "-png", "-r", str(dpi), pdf_path, page_prefix], check=True)
         page_files = sorted(
-            [os.path.join(tmpdir, fn) for fn in os.listdir(tmpdir) if fn.startswith("page-") and fn.endswith(".png")]
+            [os.path.join(tmpdir, fn) for fn in os.listdir(tmpdir) if fn.startswith("page-") and fn.endswith(".png")],
+            key=page_file_sort_key,
         )
         if not page_files:
             raise RuntimeError("Failed to render PDF pages via pdftoppm.")
@@ -521,6 +555,7 @@ def render_video(pdf_path, script_json_path, output_mp4, dpi=180, fps=12, export
         page_images = [Image.open(p).convert("RGB") for p in page_files]
         segment_files = []
         audio_modes = set()
+        audio_mode_by_turn = []
 
         for idx, turn in enumerate(turns):
             page_num = max(1, min(len(page_images), int(turn.get("page", 1))))
@@ -538,8 +573,18 @@ def render_video(pdf_path, script_json_path, output_mp4, dpi=180, fps=12, export
                 red_box = [0.08, 0.15, 0.92, 0.45]
 
             wav_path = os.path.join(tmpdir, f"turn_{idx:03d}.wav")
-            duration, mode = synthesize_turn_audio(turn, male_voice, female_voice, wav_path)
+            duration, mode, tts_error = synthesize_turn_audio(turn, male_voice, female_voice, wav_path)
             audio_modes.add(mode)
+            turn_audio = {"turn": idx + 1, "mode": mode, "duration_seconds": round(duration, 3)}
+            if tts_error:
+                turn_audio["tts_error"] = tts_error
+            audio_mode_by_turn.append(turn_audio)
+            if require_tts and mode != "edge-tts":
+                raise RuntimeError(
+                    f"Turn {idx + 1} fell back to '{mode}'. "
+                    "A publishable run requires real Edge TTS; check the dependency, connectivity, voice names, "
+                    f"and narration text. Root cause: {tts_error}"
+                )
 
             frame_a = render_frame(
                 page_img, turn, idx, len(turns), paper_title, male_name, female_name, red_box, fonts, pulse_phase=idx * 1.1
@@ -625,7 +670,30 @@ def render_video(pdf_path, script_json_path, output_mp4, dpi=180, fps=12, export
             )
             print(f"Exported animated GIF preview: {export_gif}")
 
-        print(f"Successfully generated MP4: {output_mp4} (turns={len(turns)}, audio_modes={list(audio_modes)})")
+        if not os.path.exists(output_mp4) or os.path.getsize(output_mp4) < 1024:
+            raise RuntimeError("ffmpeg returned successfully but the output MP4 is missing or empty.")
+
+        report = {
+            "output": os.path.abspath(output_mp4),
+            "source_turns": source_turn_count,
+            "rendered_turns": len(turns),
+            "dpi": dpi,
+            "fps": fps,
+            "require_tts": bool(require_tts),
+            "audio_modes": sorted(audio_modes),
+            "turn_audio": audio_mode_by_turn,
+            "file_size_bytes": os.path.getsize(output_mp4),
+        }
+        if report_json:
+            os.makedirs(os.path.dirname(os.path.abspath(report_json)), exist_ok=True)
+            with open(report_json, "w", encoding="utf-8") as report_file:
+                json.dump(report, report_file, ensure_ascii=False, indent=2)
+                report_file.write("\n")
+
+        print(
+            f"Successfully generated MP4: {output_mp4} "
+            f"(turns={len(turns)}, audio_modes={sorted(audio_modes)})"
+        )
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -636,9 +704,27 @@ def main():
     parser.add_argument("--script", required=True, help="Input dialogue JSON script path")
     parser.add_argument("--output", required=True, help="Output MP4 path")
     parser.add_argument("--dpi", type=int, default=180, help="PDF page rendering DPI")
+    parser.add_argument("--fps", type=int, default=12, help="Output frame rate")
+    parser.add_argument("--max-turns", type=int, default=None, help="Render only the first N turns for a fast preview")
+    parser.add_argument(
+        "--require-tts",
+        action="store_true",
+        help="Fail instead of using cadence-only fallback audio when Edge TTS is unavailable",
+    )
     parser.add_argument("--export-gif", default=None, help="Optional path to export animated GIF preview")
+    parser.add_argument("--report-json", default=None, help="Optional render report JSON path")
     args = parser.parse_args()
-    render_video(args.pdf, args.script, args.output, dpi=args.dpi, export_gif=args.export_gif)
+    render_video(
+        args.pdf,
+        args.script,
+        args.output,
+        dpi=args.dpi,
+        fps=args.fps,
+        export_gif=args.export_gif,
+        max_turns=args.max_turns,
+        require_tts=args.require_tts,
+        report_json=args.report_json,
+    )
 
 
 if __name__ == "__main__":
