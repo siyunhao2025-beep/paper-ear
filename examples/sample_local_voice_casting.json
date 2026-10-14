@@ -1,0 +1,62 @@
+{
+  "voice_backend": "lemonade-local",
+  "voice_model": "kokoro-v1",
+  "female_voice": "zf_xiaobei",
+  "male_voice": "zm_yunjian",
+  "voice_profiles": {
+    "female": {
+      "model": "kokoro-v1",
+      "voice": "zf_xiaobei",
+      "default_style": "natural conversation",
+      "style_degree": 1.0,
+      "rate": "+1%",
+      "pitch": "+0Hz",
+      "volume": "+0%"
+    },
+    "male": {
+      "model": "kokoro-v1",
+      "voice": "zm_yunjian",
+      "default_style": "natural conversation",
+      "style_degree": 1.0,
+      "rate": "-2%",
+      "pitch": "+0Hz",
+      "volume": "+0%"
+    }
+  },
+  "auditions": [
+    {
+      "id": "presenter-evidence-pivot",
+      "speaker": "female",
+      "text": "先别急着看相关系数。真正有诊断力的，是切换前后同步出现的变化；这更像一条可以追问的证据链。",
+      "emotion": "excited",
+      "emotion_intensity": 0.66,
+      "delivery": {
+        "provider_style": "animated but not theatrical",
+        "style_degree": 1.0,
+        "rate": "+2%",
+        "pitch": "+0Hz",
+        "volume": "+0%",
+        "pause_before_ms": 120,
+        "pause_after_ms": 360,
+        "emphasis_terms": []
+      }
+    },
+    {
+      "id": "discussant-method-challenge",
+      "speaker": "male",
+      "text": "等一下，我有个问题。如果两组观测并不严格共址，我们凭什么排除真实的时空变化？",
+      "emotion": "skeptical",
+      "emotion_intensity": 0.64,
+      "delivery": {
+        "provider_style": "firm and skeptical",
+        "style_degree": 1.0,
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%",
+        "pause_before_ms": 180,
+        "pause_after_ms": 420,
+        "emphasis_terms": []
+      }
+    }
+  ]
+}

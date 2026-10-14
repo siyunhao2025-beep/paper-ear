@@ -1,6 +1,6 @@
 ---
 name: paper-ear
-description: Turn academic-paper PDFs into evidence-grounded interactive offline web readers or 1080p MP4 group-meeting videos. Use when the user mentions paper-ear; asks to convert a research paper, PDF, or arXiv paper into a quick-browse website, HTML evidence reader, visual paper summary, video, or MP4 explanation; wants a bilingual paper walkthrough or lab-meeting presentation; or wants exact passages, equations, figures, and tables preserved with page-accurate source locations.
+description: Turn academic-paper PDFs into evidence-grounded interactive offline web readers or 1080p MP4 group-meeting videos, with optional free local/offline voice casting. Use when the user mentions paper-ear; asks to convert a research paper, PDF, or arXiv paper into a quick-browse website, HTML evidence reader, visual paper summary, video, or MP4 explanation; wants a bilingual paper walkthrough or lab-meeting presentation; wants local TTS or male/female voice auditions for a paper video; or wants exact passages, equations, figures, and tables preserved with page-accurate source locations.
 ---
 
 # Paper Ear
@@ -20,7 +20,7 @@ Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundle
 7. Treat user-supplied PDFs as local test/private inputs by default. Keep them in the run or delivery directory; never copy them into a Git repository, public example, installed Skill package, or remote service without explicit permission.
 8. For web mode, preserve searchable synthesis as text and preserve visual evidence as source-pixel crops. Never replace plots or tables with AI-redrawn approximations.
 9. Do not claim complete visual coverage from parser output alone. Visually inspect every rendered page, account for each numbered figure, table, and substantive displayed equation, and record any intentional exclusion.
-10. For online TTS, send only the final narration string plus provider controls. Never send the PDF, page images, extracted full text, evidence crops, local paths, or run artifacts. Disclose this text-only boundary before the first online synthesis.
+10. For online TTS, send only the final narration string plus provider controls. Never send the PDF, page images, extracted full text, evidence crops, local paths, or run artifacts. Disclose this text-only boundary before the first online synthesis. For local TTS, require a loopback endpoint by default and keep model weights outside the repository.
 11. A two-speaker video must contain real evidence-driven interaction, not alternating exposition. Use `evidence-dialogue-v2` for standard/full videos and pass its deterministic interaction gate.
 
 ## Choose the output mode
@@ -222,7 +222,14 @@ Do not ask questions the user already answered. If the user says to use defaults
 
 ### 3A. Cast and audition the voices
 
-Use Azure Speech when the user asks for human-like emotion or varied delivery. The default cast is `zh-CN-XiaoxiaoNeural` for the presenter and `zh-CN-YunjianNeural` for the discussant. Keep Edge TTS as the lightweight alternative; never imply that its rate/pitch controls equal Azure speaking styles.
+Use `lemonade-local` with `kokoro-v1` when the user wants a free, account-free, offline preview. The default local cast is `zf_xiaobei` for the presenter and `zm_yunjian` for the discussant. Audition all eight tested Mandarin presets with `render_local_voice_menu.py` when the user wants a choice. Keep the menu's per-voice traits, best-fit role, and caution beside each player, and label them as same-line audition judgments rather than official personality definitions. Never imply that Kokoro's speed control equals true emotion control; its upstream card grades the Mandarin presets D overall. Use Azure Speech, or the optional much larger local MOSS tier, when stronger acting matters. Keep Edge TTS as the lightweight online alternative.
+
+Read [references/local-voice-provenance.md](references/local-voice-provenance.md) before installing or recommending a local engine. Create the local Mandarin menu without opening a PDF:
+
+```bash
+python <SKILL_DIR>/scripts/render_local_voice_menu.py \
+  --output-dir <run_dir>/voice-menu
+```
 
 Read [references/voice-casting-and-dialogue.md](references/voice-casting-and-dialogue.md) before configuring voices. Show a compact casting menu only when the user has not already accepted a default. Before full rendering, synthesize one presenter line and one discussant line, then a four-turn 45–75 second micro-scene containing a claim, challenge, evidence answer, and concession/follow-up.
 
@@ -235,7 +242,7 @@ python <SKILL_DIR>/scripts/render_voice_auditions.py \
   --dry-run
 ```
 
-Remove `--dry-run` only after the user accepts the provider/privacy boundary and the required credential environment variables are present. Never store credentials in project files.
+For `lemonade-local`, remove `--dry-run` after the loopback server and requested model are ready; no credential is normally required. For online providers, remove it only after the user accepts the provider/privacy boundary and the required credential environment variables are present. Never store credentials in project files.
 
 ### 4. Confirm the dialogue storyboard
 
@@ -331,7 +338,7 @@ Then sample frames at the beginning, middle, end, and every figure/table turn. F
 - every intended figure/table/equation is framed correctly;
 - subtitles and cards stay within their panels and do not obscure evidence;
 - the final file has both video and audio streams, the expected resolution, and no truncated final turn;
-- `render_report.json` reports only the configured real provider (`azure-speech` or `edge-tts`) for a publishable run, with the intended voice and style on every turn.
+- `render_report.json` reports only the configured real provider (`lemonade-local`, `azure-speech`, or `edge-tts`) for a publishable run, with the intended voice/model and supported controls on every turn.
 
 ### 9. Deliver
 
@@ -354,8 +361,8 @@ Do not create PPTX, Markdown reports, social-media cuts, or additional deliverab
 - **Browser interaction fails:** repair the HTML/CSS/JavaScript and repeat desktop plus mobile testing; a deterministic file check alone is not sufficient.
 - **Private/test PDF is inside a repository path:** move the run and delivery artifacts outside the repository before any commit or push, and confirm the source file is absent from `git status` and the staged file list.
 - **Text locator misses a figure or equation:** set `red_box` manually from the rendered page and keep `search_text` only when it resolves to the same target.
-- **TTS unavailable:** generate a dry-run SSML audition plan and explain which credential is missing. Cadence audio is allowed only for visual timing; voice approval and publishable runs must stop under `--require-tts`.
-- **Voice sounds synthetic:** audition two role-specific lines, reduce style intensity, add semantic pauses, shorten clauses, and verify the speaking style is actually supported by that exact voice. Do not fix flat delivery by inserting stage directions into spoken text.
+- **TTS unavailable:** for local mode, verify Lemonade health, install the `kokoro:cpu` backend, and pull `kokoro-v1`; for online mode, generate a dry-run request/SSML plan and explain which credential is missing. Cadence audio is allowed only for visual timing; voice approval and publishable runs must stop under `--require-tts`.
+- **Voice sounds synthetic:** audition the full local voice menu, add semantic pauses, shorten clauses, and verify that the selected model actually supports the requested control. Do not claim Kokoro has emotion styles, and do not fix flat delivery by inserting stage directions into spoken text. Offer MOSS/Azure as an explicit quality upgrade rather than hiding the limitation.
 - **Dialogue feels like alternating narration:** rewrite around the weakest assumptions and strongest internal evidence, link each question to an answer, then rerun the `evidence-dialogue-v2` metrics instead of adding filler interjections.
 - **Long subtitle or card text:** split the turn or shorten the paraphrase; do not reduce the font until it becomes hard to read.
 - **Source contradiction:** prefer the table/figure for exact numbers, note the prose mismatch, and phrase the video conservatively.

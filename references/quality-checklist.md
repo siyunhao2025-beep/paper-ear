@@ -31,6 +31,7 @@ Use this checklist after strict dialogue validation and before delivering a fina
 ## Audio and timing
 
 - Require real TTS for a publishable video; `offline-cadence` is preview-only.
+- For `lemonade-local`, confirm the render report records the intended model, voice, and `endpoint_scope: loopback`; treat provider-style labels as script direction unless that model explicitly supports them.
 - Listen to technical terms, acronyms, symbols, and mixed Chinese-English phrases for pronunciation problems.
 - Confirm the final word of every turn is audible and the last turn is not truncated.
 - Keep speech at a comprehensible rate; shorten text before using extreme speed.
@@ -46,6 +47,6 @@ Use this checklist after strict dialogue validation and before delivering a fina
 ## Delivery
 
 - Deliver the final MP4 from the successful publish run, not the low-DPI preview.
-- State whether Edge TTS was used and which validation gates passed.
+- State which TTS provider, model, and role voices were used, and which validation gates passed.
 - Disclose any source region that could not be verified.
 - Do not claim a clean result if a strict gate failed or was skipped.

@@ -10,6 +10,7 @@ from pathlib import Path
 from render_paper_video import (
     VOICE_BACKENDS,
     build_azure_ssml,
+    build_lemonade_request,
     resolve_delivery,
     resolve_voice_profile,
     synthesize_turn_audio,
@@ -90,7 +91,11 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "voice_backend": backend,
-        "privacy_scope": "Only the final audition text is eligible for synthesis; no PDF or page image is read or sent.",
+        "privacy_scope": (
+            "Local Lemonade synthesis stays on the configured machine; no PDF, page image, or narration is sent to a cloud provider."
+            if backend == "lemonade-local"
+            else "Only the final audition text is eligible for online synthesis; no PDF or page image is read or sent."
+        ),
         "dry_run": bool(args.dry_run),
         "clips": [],
     }
@@ -114,6 +119,7 @@ def main():
             "speaker": speaker,
             "provider": backend,
             "voice": profile["voice"],
+            "model": profile.get("model"),
             "emotion": delivery["emotion"],
             "provider_style": delivery["provider_style"],
             "style_degree": delivery["style_degree"],
@@ -127,6 +133,13 @@ def main():
                 ssml_path = output_dir / f"{clip_id}.ssml"
                 ssml_path.write_text(build_azure_ssml(text, profile["voice"], delivery) + "\n", encoding="utf-8")
                 record["ssml_file"] = ssml_path.name
+            elif backend == "lemonade-local":
+                request_path = output_dir / f"{clip_id}.request.json"
+                request_path.write_text(
+                    json.dumps(build_lemonade_request(text, profile, delivery), ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                record["request_file"] = request_path.name
             record["status"] = "planned"
         else:
             wav_path = output_dir / f"{clip_id}.wav"
@@ -153,7 +166,10 @@ def main():
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     action = "Planned" if args.dry_run else "Rendered"
     print(f"{action} {len(manifest['clips'])} voice audition(s): {manifest_path}")
-    print("Privacy: this workflow does not open or upload the source PDF; online synthesis receives narration text only.")
+    if backend == "lemonade-local":
+        print("Privacy: this workflow does not open the source PDF; synthesis runs through the configured local endpoint.")
+    else:
+        print("Privacy: this workflow does not open or upload the source PDF; online synthesis receives narration text only.")
     return 0
 
 

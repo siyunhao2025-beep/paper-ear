@@ -11,8 +11,9 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 | `female_name` | yes in strict mode | Display name and role for the presenter. |
 | `male_voice` | one voice source required | Backward-compatible male voice name; `voice_profiles.male.voice` may replace it. |
 | `female_voice` | one voice source required | Backward-compatible female voice name; `voice_profiles.female.voice` may replace it. |
-| `voice_backend` | no | `edge-tts` (backward-compatible default) or `azure-speech`. |
-| `voice_profiles` | recommended for Azure | Female/male voice, default style, emotion-to-style map, and baseline prosody. |
+| `voice_backend` | no | `edge-tts` (backward-compatible default), `azure-speech`, or `lemonade-local`. |
+| `voice_model` | recommended for local | Local model shared by both roles, normally `kokoro-v1`; a profile-level model overrides it. |
+| `voice_profiles` | recommended | Female/male voice, optional local model/voice-design description, default style, emotion-to-style map, and baseline prosody. |
 | `interaction_mode` | no | Set to `evidence-dialogue-v2` to enforce real question/answer dynamics. |
 | `turns` | yes | Ordered, non-empty array of dialogue turns. |
 
@@ -61,6 +62,8 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 ```
 
 `style_degree` accepts `0.01..2.0`; prefer `<= 1.15` for ordinary turns and `<= 1.30` for a justified peak. Pauses accept `0..5000` milliseconds. Edge TTS uses rate/pitch/volume and ignores Azure-only style semantics; Azure Speech uses the complete SSML delivery object. For the default Chinese voices, `emphasis_terms` are expressed with a slight local slowdown/pitch lift because Azure documents native word-level `<emphasis>` tuning for only a small English-voice subset.
+
+For `lemonade-local`, use `voice_profiles.<speaker>.model` and `.voice`. The tested lightweight Mandarin default is `kokoro-v1` with female voices `zf_xiaobei`, `zf_xiaoni`, `zf_xiaoxiao`, `zf_xiaoyi` and male voices `zm_yunjian`, `zm_yunxi`, `zm_yunxia`, `zm_yunyang`. Kokoro honors speed but does not implement Azure speaking styles; `provider_style`, pitch, volume, and emphasis remain semantic direction or report metadata rather than guaranteed acoustic controls. Optional MOSS models may also accept `voice_design_description`, but require a much larger local download.
 
 Allowed `interaction_tags` are `question`, `disagreement`, `surprise`, `concession`, `self_correction`, `reverse_question`, and `unresolved`. Use only tags that describe an actual conversational event.
 

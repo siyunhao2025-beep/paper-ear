@@ -1,14 +1,27 @@
 # Voice Casting and Evidence-Dialogue Guide
 
-This guide adds human-sounding delivery without turning a paper review into staged banter. The default is Azure Speech because it supports SSML speaking styles, style intensity, prosody, pauses, and emphasis. Edge TTS remains a lightweight option for ordinary narration, but it cannot provide the same per-turn style control.
+This guide adds human-sounding delivery without turning a paper review into staged banter. Prefer `lemonade-local` with Kokoro when the user wants a free, account-free, offline preview. Use Azure Speech or the optional local MOSS tier when stronger acting and fine-grained voice direction matter. Edge TTS remains a lightweight online alternative, but it cannot provide the same per-turn style control.
 
 Official references:
 
+- [AMD local-ai-use Skill](https://github.com/amd/skills/tree/main/skills/local-ai-use)
+- [Lemonade OpenAI-compatible speech endpoint](https://github.com/lemonade-sdk/lemonade/blob/main/docs/api/openai.md)
+- [Kokoro voice card](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md)
+- [MOSS-TTS](https://github.com/OpenMOSS/MOSS-TTS)
 - [Azure Speech language and voice support](https://learn.microsoft.com/azure/ai-services/speech-service/language-support?tabs=tts)
 - [Azure SSML voice, style, and role controls](https://learn.microsoft.com/azure/ai-services/speech-service/speech-synthesis-markup-voice)
 - [Azure Speech REST text-to-speech API](https://learn.microsoft.com/azure/ai-services/speech-service/rest-text-to-speech)
 
-## Default cast
+## Default local cast
+
+| Role | Voice | Delivery arc | Why it fits |
+|---|---|---|---|
+| Presenter | `zf_xiaobei` | punctuation + concise clauses + evidence pivots | Tested Mandarin female preset; no account or key required. |
+| Discussant | `zm_yunjian` | short challenges + deliberate pauses + follow-ups | Tested Mandarin male preset; clear role contrast without voice cloning. |
+
+These are safe starting points, not objective winners. Run `render_local_voice_menu.py` and let the user compare all eight tested presets. Kokoro's own voice card grades its Mandarin presets D overall, so never describe this tier as human-level emotional acting. See [local-voice-provenance.md](local-voice-provenance.md).
+
+## Azure expressive cast
 
 | Role | Voice | Delivery arc | Why it fits |
 |---|---|---|---|
@@ -36,13 +49,41 @@ Dialect voices can be offered as an optional creative choice, but do not make th
 
 | Provider | Use when | Limitation |
 |---|---|---|
+| `lemonade-local` + `kokoro-v1` | The user wants free, offline, account-free Mandarin previews and several male/female presets. | Fixed voices; weak explicit emotion control; upstream grades the Mandarin presets D overall. |
+| `lemonade-local` + `MOSS-TTS-Local` or `OpenMOSS-TTS` | The user accepts a much larger local download for stronger expressiveness or voice design on supported hardware. | Roughly 8.5-12.5 GB in the tested catalog, with additional voice-design weights possible; benchmark before promising speed. |
 | `azure-speech` | The user wants emotions, speaking styles, pauses, emphasis, and consistent casting. | Requires an Azure Speech key/region and sends final narration text to Azure. |
 | `edge-tts` | The user wants a quick, no-key neural narration preview. | Supports voice/rate/volume/pitch but not custom expressive SSML styles. |
 | `offline-cadence` | Visual timing only. | It is not intelligible speech and must never be presented as finished narration. |
 
 ## Privacy boundary
 
-The online TTS request may contain only the final narration string plus SSML controls. Never send the PDF, page images, extracted full text, tables, figures, equations, citations, run directory, or local file paths. `render_voice_auditions.py` does not open the source PDF. `render_paper_video.py` reads the PDF locally for frames while sending only each turn's `spoken_text` (or subtitle fallback) to the selected TTS endpoint.
+The local Lemonade request may contain only the final narration string plus voice controls and must use a loopback endpoint by default. The online TTS request may contain only the final narration string plus SSML controls. Never send the PDF, page images, extracted full text, tables, figures, equations, citations, run directory, or local file paths. `render_voice_auditions.py` and `render_local_voice_menu.py` do not open the source PDF. `render_paper_video.py` reads the PDF locally for frames while sending only each turn's `spoken_text` (or subtitle fallback) to the selected TTS endpoint.
+
+## Configure free local speech
+
+Install the AMD `local-ai-use` Skill and follow its setup, or install Lemonade Server from its official installer. Then install only the TTS backend/model:
+
+```powershell
+lemonade backends install kokoro:cpu
+lemonade pull kokoro-v1
+```
+
+Generate the eight-option Mandarin menu with one comparison line:
+
+```powershell
+python scripts/render_local_voice_menu.py `
+  --output-dir .\voice-menu
+```
+
+Render the default two-role audition without opening a PDF:
+
+```powershell
+python scripts/render_voice_auditions.py `
+  --config examples/sample_local_voice_casting.json `
+  --output-dir .\local-audition
+```
+
+The default endpoint is `http://127.0.0.1:13305/api/v1`. Override it with `PAPER_EAR_LEMONADE_BASE_URL`. A non-loopback endpoint is rejected unless `PAPER_EAR_ALLOW_REMOTE_LEMONADE=1` is explicitly set after the user approves that privacy boundary.
 
 ## Configure Azure Speech
 
@@ -114,7 +155,8 @@ Use a challenge → evidence answer → follow-up → concession/synthesis rhyth
 For each turn return: speaker, dialogue_act, responds_to_turn, emotion, emotion_intensity, delivery, question_target, interaction_tags, page, evidence_anchor, claim_type, Chinese spoken/subtitle text, English subtitle, red-box target, and concise notes.
 
 Voice default:
-- Presenter: zh-CN-XiaoxiaoNeural; chat/serious/excited/calm; normal style_degree <= 1.15.
-- Discussant: zh-CN-YunjianNeural; narration-relaxed/serious/documentary-narration; normal style_degree <= 1.15.
+- Free local presenter: zf_xiaobei; use punctuation, compact clauses, and evidence pivots rather than unsupported style claims.
+- Free local discussant: zm_yunjian; use short challenges, deliberate pauses, and follow-up questions.
+- Azure upgrade: zh-CN-XiaoxiaoNeural + zh-CN-YunjianNeural with validated styles and normal style_degree <= 1.15.
 - Use pauses and punctuation to communicate thought; never write stage directions such as “愤怒地说” into spoken text.
 ```

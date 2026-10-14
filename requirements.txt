@@ -2,3 +2,4 @@ pdfplumber>=0.10.0
 Pillow>=10.0.0
 numpy>=1.24.0
 edge-tts>=6.1.9
+soundfile>=0.12.1

@@ -6,8 +6,8 @@ Features:
 - Dynamic Red Bounding Box (红框) with corner target brackets highlighting the exact paragraph/figure/formula
 - Zoomed-in focus preview + Term Explanation Card (专业名词解析卡片) on the side panel
 - Synchronized Bilingual Subtitles (中英双语字幕) + Chapter Progress Bar at the bottom
-- Expressive Audio Synthesis: supports Microsoft Edge Neural TTS for lightweight
-  runs and Azure Speech SSML for per-turn style, prosody, pauses, and emphasis.
+- Audio synthesis: supports local Lemonade/Kokoro or MOSS, Microsoft Edge
+  Neural TTS, and Azure Speech SSML for per-turn style and prosody controls.
 - Explicit safety fallback: cadence-only audio is available for visual previews,
   while --require-tts rejects every fallback or provider mismatch.
 - Optional --export-gif flag to export an animated GIF preview for GitHub READMEs.
@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import wave
 from xml.sax.saxutils import escape as xml_escape
@@ -51,8 +52,16 @@ FONT_BOLD_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
 
-VOICE_BACKENDS = {"edge-tts", "azure-speech"}
+VOICE_BACKENDS = {"edge-tts", "azure-speech", "lemonade-local"}
 NATIVE_EMPHASIS_VOICES = {"en-US-GuyNeural", "en-US-DavisNeural", "en-US-JaneNeural"}
+
+LEMONADE_DEFAULT_BASE_URL = "http://127.0.0.1:13305/api/v1"
+LEMONADE_KOKORO_MODEL = "kokoro-v1"
+LEMONADE_EXPRESSIVE_MODELS = {"MOSS-TTS-Local", "OpenMOSS-TTS"}
+LEMONADE_KOKORO_ZH_VOICES = {
+    "female": ("zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi"),
+    "male": ("zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang"),
+}
 
 DEFAULT_STYLE_BY_EMOTION = {
     "female": {
@@ -72,6 +81,27 @@ DEFAULT_STYLE_BY_EMOTION = {
         "surprised": "documentary-narration",
         "excited": "documentary-narration",
         "reflective": "documentary-narration",
+    },
+}
+
+LOCAL_STYLE_BY_EMOTION = {
+    "female": {
+        "neutral": "natural conversation",
+        "curious": "curious and engaged",
+        "skeptical": "skeptical but respectful",
+        "serious": "focused and serious",
+        "surprised": "genuinely surprised",
+        "excited": "animated but not theatrical",
+        "reflective": "thoughtful and measured",
+    },
+    "male": {
+        "neutral": "natural conversation",
+        "curious": "probing and curious",
+        "skeptical": "firm and skeptical",
+        "serious": "focused and serious",
+        "surprised": "genuinely surprised",
+        "excited": "energetic but controlled",
+        "reflective": "calm and reflective",
     },
 }
 
@@ -243,18 +273,26 @@ def _ssml_text_with_emphasis(text, emphasis_terms, voice):
 def resolve_voice_profile(data, speaker):
     """Resolve the selected voice while retaining the legacy male/female fields."""
     speaker = "male" if str(speaker).lower() == "male" else "female"
-    default_voice = "zh-CN-YunjianNeural" if speaker == "male" else "zh-CN-XiaoxiaoNeural"
+    backend = str(data.get("voice_backend") or "edge-tts").lower()
+    if backend == "lemonade-local":
+        default_voice = "zm_yunjian" if speaker == "male" else "zf_xiaobei"
+        default_styles = LOCAL_STYLE_BY_EMOTION[speaker]
+    else:
+        default_voice = "zh-CN-YunjianNeural" if speaker == "male" else "zh-CN-XiaoxiaoNeural"
+        default_styles = DEFAULT_STYLE_BY_EMOTION[speaker]
     legacy_voice = data.get(f"{speaker}_voice", default_voice)
     profiles = data.get("voice_profiles") or {}
     profile = profiles.get(speaker) if isinstance(profiles, dict) else None
     profile = dict(profile) if isinstance(profile, dict) else {}
     profile["voice"] = profile.get("voice") or legacy_voice
-    profile.setdefault("default_style", DEFAULT_STYLE_BY_EMOTION[speaker]["neutral"])
-    profile.setdefault("styles_by_emotion", DEFAULT_STYLE_BY_EMOTION[speaker])
+    profile.setdefault("model", data.get("voice_model") or LEMONADE_KOKORO_MODEL)
+    profile.setdefault("default_style", default_styles["neutral"])
+    profile.setdefault("styles_by_emotion", default_styles)
     profile.setdefault("rate", "+0%")
     profile.setdefault("pitch", "+0Hz")
     profile.setdefault("volume", "+0%")
     profile.setdefault("style_degree", 1.0)
+    profile.setdefault("voice_design_description", "")
     return profile
 
 
@@ -316,13 +354,161 @@ def build_azure_ssml(text, voice, delivery):
     )
 
 
+def _convert_audio_to_wav(input_audio, out_wav, sample_rate=24000, channels=1):
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                input_audio,
+                "-ar",
+                str(sample_rate),
+                "-ac",
+                str(channels),
+                "-c:a",
+                "pcm_s16le",
+                out_wav,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return
+
+    # Voice auditions should not need a full video toolchain. SoundFile handles
+    # Lemonade's float WAV response and writes a wave-module-compatible PCM WAV.
+    import soundfile as sf
+
+    audio, source_rate = sf.read(input_audio, dtype="float32", always_2d=True)
+    if channels == 1 and audio.shape[1] != 1:
+        audio = np.mean(audio, axis=1, keepdims=True)
+    elif channels > 1 and audio.shape[1] == 1:
+        audio = np.repeat(audio, channels, axis=1)
+    if source_rate != sample_rate and len(audio) > 1:
+        source_x = np.arange(len(audio), dtype=np.float64)
+        target_len = max(1, int(round(len(audio) * sample_rate / source_rate)))
+        target_x = np.linspace(0, len(audio) - 1, target_len)
+        audio = np.column_stack(
+            [np.interp(target_x, source_x, audio[:, channel]) for channel in range(audio.shape[1])]
+        ).astype(np.float32)
+    sf.write(out_wav, audio, sample_rate, subtype="PCM_16")
+
+
 def _convert_mp3_to_wav(tmp_mp3, out_wav):
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", tmp_mp3, "-ar", "24000", "-ac", "1", out_wav],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    _convert_audio_to_wav(tmp_mp3, out_wav)
+
+
+def _pad_pcm_wav(out_wav, before_ms=0, after_ms=0):
+    before_ms = max(0, int(before_ms or 0))
+    after_ms = max(0, int(after_ms or 0))
+    if not before_ms and not after_ms:
+        return
+    padded_path = out_wav + ".padded.wav"
+    try:
+        with wave.open(out_wav, "rb") as source:
+            params = source.getparams()
+            frames = source.readframes(source.getnframes())
+        bytes_per_frame = params.nchannels * params.sampwidth
+        prefix = b"\x00" * int(params.framerate * before_ms / 1000.0) * bytes_per_frame
+        suffix = b"\x00" * int(params.framerate * after_ms / 1000.0) * bytes_per_frame
+        with wave.open(padded_path, "wb") as target:
+            target.setparams(params)
+            target.writeframes(prefix + frames + suffix)
+        os.replace(padded_path, out_wav)
+    finally:
+        if os.path.exists(padded_path):
+            os.remove(padded_path)
+
+
+def _rate_to_speed(rate):
+    if isinstance(rate, (int, float)) and not isinstance(rate, bool):
+        return max(0.5, min(2.0, float(rate)))
+    match = re.fullmatch(r"([+-])(\d+)%", str(rate or "+0%").strip())
+    if not match:
+        return 1.0
+    delta = int(match.group(2)) / 100.0
+    speed = 1.0 + delta if match.group(1) == "+" else 1.0 - delta
+    return max(0.5, min(2.0, speed))
+
+
+def resolve_lemonade_base_url(voice_profile=None):
+    profile = voice_profile if isinstance(voice_profile, dict) else {}
+    base_url = (
+        os.environ.get("PAPER_EAR_LEMONADE_BASE_URL")
+        or profile.get("base_url")
+        or LEMONADE_DEFAULT_BASE_URL
     )
+    base_url = str(base_url).strip().rstrip("/")
+    parsed = urllib.parse.urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise RuntimeError("Lemonade base URL must be an absolute http(s) URL.")
+    loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+    allow_remote = os.environ.get("PAPER_EAR_ALLOW_REMOTE_LEMONADE") == "1"
+    if parsed.hostname.lower() not in loopback_hosts and not allow_remote:
+        raise RuntimeError(
+            "Refusing to send narration to a non-loopback Lemonade endpoint. "
+            "Set PAPER_EAR_ALLOW_REMOTE_LEMONADE=1 only after approving that privacy boundary."
+        )
+    return base_url
+
+
+def build_lemonade_request(text, voice_profile, delivery):
+    model = str(voice_profile.get("model") or LEMONADE_KOKORO_MODEL).strip()
+    voice = str(voice_profile.get("voice") or "").strip()
+    payload = {
+        "model": model,
+        "input": text,
+        "speed": _rate_to_speed(delivery.get("rate")),
+        "response_format": "wav",
+    }
+    if voice:
+        payload["voice"] = voice
+    design = str(voice_profile.get("voice_design_description") or "").strip()
+    if model in LEMONADE_EXPRESSIVE_MODELS and design:
+        payload["voice_design_description"] = design
+    return payload
+
+
+def try_lemonade_tts(text, voice_profile, delivery, out_wav):
+    """Synthesize locally through Lemonade; no paper artifact leaves the machine."""
+    base_url = resolve_lemonade_base_url(voice_profile)
+    payload = build_lemonade_request(text, voice_profile, delivery)
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+    api_key = os.environ.get("LEMONADE_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(
+        f"{base_url}/audio/speech",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    provider_wav = out_wav + ".lemonade.wav"
+    try:
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                audio = response.read()
+        except urllib.error.HTTPError as exc:
+            exc.read()
+            raise RuntimeError(f"Lemonade HTTP {exc.code} ({exc.reason}).") from exc
+        if len(audio) < 1000:
+            raise RuntimeError("Lemonade returned an empty or unexpectedly small audio payload.")
+        with open(provider_wav, "wb") as audio_file:
+            audio_file.write(audio)
+        # Kokoro currently returns float WAV. Normalize to 16-bit PCM so Python's
+        # wave module, ffmpeg, and downstream video verification agree on it.
+        _convert_audio_to_wav(provider_wav, out_wav)
+        _pad_pcm_wav(out_wav, delivery.get("pause_before_ms"), delivery.get("pause_after_ms"))
+    finally:
+        if os.path.exists(provider_wav):
+            os.remove(provider_wav)
+    return {
+        "model": payload["model"],
+        "endpoint_scope": "loopback" if urllib.parse.urlparse(base_url).hostname in {"localhost", "127.0.0.1", "::1"} else "remote",
+        "voice_design": bool(payload.get("voice_design_description")),
+    }
 
 
 async def try_edge_tts(text, voice, delivery, out_wav):
@@ -443,6 +629,8 @@ def synthesize_turn_audio(turn, voice_backend, voice_profile, out_wav):
             asyncio.run(try_edge_tts(spoken_text, voice, delivery, out_wav))
         elif voice_backend == "azure-speech":
             try_azure_speech(spoken_text, voice, delivery, out_wav)
+        elif voice_backend == "lemonade-local":
+            metadata.update(try_lemonade_tts(spoken_text, voice_profile, delivery, out_wav))
         else:
             raise ValueError(f"Unsupported voice_backend '{voice_backend}'. Choose one of {sorted(VOICE_BACKENDS)}.")
         if os.path.exists(out_wav) and os.path.getsize(out_wav) > 1000:

@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Ear"
-  short_description: "Create evidence-grounded paper web readers or videos"
-  default_prompt: "Use $paper-ear to turn this research PDF into an interactive evidence reader or a bilingual group-meeting video."
+  short_description: "Create evidence readers, videos, and local voice auditions"
+  default_prompt: "Use $paper-ear to turn this research PDF into an interactive evidence reader or a bilingual group-meeting video, using free local voice auditions when requested."

@@ -23,7 +23,11 @@ INTERACTION_TAGS = {
     "reverse_question",
     "unresolved",
 }
-VOICE_BACKENDS = {"edge-tts", "azure-speech"}
+VOICE_BACKENDS = {"edge-tts", "azure-speech", "lemonade-local"}
+LEMONADE_KOKORO_ZH_VOICES = {
+    "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi",
+    "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
+}
 AZURE_VOICE_STYLES = {
     "zh-CN-XiaoxiaoNeural": {
         "affectionate", "angry", "assistant", "calm", "chat", "chat-casual", "cheerful",
@@ -271,6 +275,17 @@ def validate_script(script_path, page_count, strict, errors, warnings):
         if not nonempty_string(voice):
             target = errors if strict else warnings
             add_issue(target, f"missing_{speaker}_voice", f"Provide voice_profiles.{speaker}.voice or {speaker}_voice.")
+        if backend == "lemonade-local" and isinstance(profile, dict):
+            model = profile.get("model") or data.get("voice_model") or "kokoro-v1"
+            if not nonempty_string(model):
+                add_issue(errors, f"missing_{speaker}_voice_model", f"Provide voice_profiles.{speaker}.model.")
+            if model == "kokoro-v1" and nonempty_string(voice) and voice.startswith(("zf_", "zm_")):
+                if voice not in LEMONADE_KOKORO_ZH_VOICES:
+                    add_issue(
+                        warnings,
+                        "unverified_local_voice",
+                        f"Kokoro Mandarin voice '{voice}' is not in Paper-Ear's tested Lemonade voice set.",
+                    )
 
     interaction_v2 = data.get("interaction_mode") == "evidence-dialogue-v2"
 

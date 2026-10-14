@@ -11,7 +11,7 @@
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](#1-环境准备-prerequisites)
 [![Offline Web](https://img.shields.io/badge/Web-Offline_Evidence_Reader-137F97?style=for-the-badge&logo=html5&logoColor=white)](#-交互式网页速读-interactive-web-reader)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-1080p_H.264-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)](#4-命令行视频模式)
-[![Edge-TTS](https://img.shields.io/badge/Audio-Neural_Male_%26_Female_TTS-0284C7?style=for-the-badge)](#男女双人语音声线配置-voice-configuration)
+[![Local-TTS](https://img.shields.io/badge/Audio-Local_Offline_TTS-0284C7?style=for-the-badge)](#男女双人语音声线配置-voice-configuration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
 [**⚡ 网页速读模式**](#-交互式网页速读-interactive-web-reader) •
@@ -252,14 +252,36 @@ python3 scripts/verify_video.py \
 
 ## 🎙️ 男女双人语音声线配置 (Voice Configuration)
 
-Paper-Ear 现在支持两条真实语音链路：`edge-tts` 适合无需密钥的快速神经语音，`azure-speech` 适合需要逐回合情绪、说话风格、停顿、重音和强度控制的正式成片。网络或凭据不可用时，脚本只会生成用于视觉计时的 `offline-cadence`；它**不是可听懂的旁白**。正式成片请始终启用 `--require-tts`，以阻止静默降级。
+Paper-Ear 现在支持三条真实语音链路：`lemonade-local` 是免费、免账号、首次下载后可断网使用的本地默认；`edge-tts` 是无需密钥的在线轻量方案；`azure-speech` 是带明确情绪/风格控制的云端升级。网络、模型或凭据不可用时，脚本只会生成用于视觉计时的 `offline-cadence`；它**不是可听懂的旁白**。正式成片请始终启用 `--require-tts`，以阻止静默降级。
 
-默认“严谨组会 + 轻答辩感”选角：
+本地默认使用 Lemonade + `kokoro-v1`（约 0.354 GB）。安装后只需一次：
 
-| 角色定位 | 默认声线 | 风格轨迹 | 备选声线 |
-| :--- | :--- | :--- | :--- |
-| **女声主讲人 (Presenter)** | `zh-CN-XiaoxiaoNeural` | `chat → serious → excited → calm` | `zh-CN-XiaoyiNeural` |
-| **男声质疑者 (Discussant)** | `zh-CN-YunjianNeural` | `narration-relaxed → serious → documentary-narration` | `zh-CN-YunxiNeural` / `zh-CN-YunyangNeural` |
+```powershell
+lemonade backends install kokoro:cpu
+lemonade pull kokoro-v1
+```
+
+先用同一句台词生成 8 个中文音色试听。页面会把每个声音的听感、适合角色和使用提醒直接写在播放器旁边；这些标签来自同句试听的相对时长、音高、响度与选角判断，不冒充官方人格定义：
+
+```powershell
+python scripts/render_local_voice_menu.py `
+  --output-dir .\voice-menu
+```
+
+| 角色 | 已实测本地音色 | 默认 |
+| :--- | :--- | :--- |
+| 女声主讲人 | `zf_xiaobei` / `zf_xiaoni` / `zf_xiaoxiao` / `zf_xiaoyi` | `zf_xiaobei` |
+| 男声质疑者 | `zm_yunjian` / `zm_yunxi` / `zm_yunxia` / `zm_yunyang` | `zm_yunjian` |
+
+必须诚实说明：Kokoro 官方音色卡把普通话预设的综合等级标为 D，并提醒非英语支持和极短/极长句可能退化。因此它适合作为免费离线默认和选角预览，不能承诺达到真人演员的情绪表现。需要更强表现力时，可选 Lemonade 的 MOSS 本地档（目录快照约 8.5–12.5 GB，音色设计还可能需要额外权重）或 Azure；不要把大模型下载伪装成轻量安装。
+
+不读取 PDF 的本地双人试听：
+
+```powershell
+python scripts/render_voice_auditions.py `
+  --config examples/sample_local_voice_casting.json `
+  --output-dir .\local-audition
+```
 
 Azure 凭据只从环境变量读取，不写入 JSON、日志或仓库：
 
@@ -282,7 +304,7 @@ python scripts/render_voice_auditions.py \
   --output-dir /tmp/paper-ear-audition
 ```
 
-在线语音接口只接收最终旁白文本与 SSML 控制；PDF、全文、页面图、图表和本地路径均不会发送。完整选角、隐私边界、试听门槛与互动改写提示词见 [`references/voice-casting-and-dialogue.md`](./references/voice-casting-and-dialogue.md)。
+本地语音默认只访问 `127.0.0.1`；在线语音接口只接收最终旁白文本与 SSML 控制。PDF、全文、页面图、图表和本地路径均不会发送。完整选角、隐私边界、试听门槛与互动改写提示词见 [`references/voice-casting-and-dialogue.md`](./references/voice-casting-and-dialogue.md)，本地引擎取舍与许可证快照见 [`references/local-voice-provenance.md`](./references/local-voice-provenance.md)。
 
 ## 📐 对话与红框配置规范 (Script JSON Schema)
 
@@ -293,9 +315,10 @@ python scripts/render_voice_auditions.py \
   "title": "Sparse-Ear: Dynamic Token Routing for Long-Context Reasoning",
   "male_name": "师兄 Alex (提问/思辨)",
   "female_name": "主讲人 Lin (精读讲解)",
-  "voice_backend": "azure-speech",
-  "male_voice": "zh-CN-YunjianNeural",
-  "female_voice": "zh-CN-XiaoxiaoNeural",
+  "voice_backend": "lemonade-local",
+  "voice_model": "kokoro-v1",
+  "male_voice": "zm_yunjian",
+  "female_voice": "zf_xiaobei",
   "turns": [
     {
       "page": 1,
@@ -366,7 +389,8 @@ paper-ear/
 │   ├── quality-checklist.md         # 内容、视觉、音频与媒体发布检查表
 │   ├── web-brief-schema.md          # 网页证据地图、视觉清单与声明类型规范
 │   ├── web-quality-checklist.md     # 网页内容、交互、移动端与离线验收清单
-│   └── web-design-provenance.md     # 高星项目调研来源与设计取舍
+│   ├── web-design-provenance.md     # 高星项目调研来源与设计取舍
+│   └── local-voice-provenance.md    # 本地 TTS 调研、许可证、硬件与质量边界
 ├── scripts/
 │   ├── inspect_paper.py             # PDF 页面尺寸、文本块/图表归一化坐标提取工具
 │   ├── build_visual_inventory.py    # 图/表/公式候选盘点（输出必须逐页复核）
@@ -374,13 +398,15 @@ paper-ear/
 │   ├── render_paper_web.py          # 离线交互式网页与原页定位图生成器
 │   ├── verify_web_reader.py         # 本地资源、图片、DOM 与清单一致性验收工具
 │   ├── validate_dialogue.py          # 环境、PDF、剧本与证据字段严格校验器
-│   ├── render_voice_auditions.py     # 不读取 PDF 的文本级声线试听与 SSML 预审
+│   ├── render_voice_auditions.py     # 不读取 PDF 的文本级声线试听与请求预审
+│   ├── render_local_voice_menu.py    # 生成 8 个中文离线音色的同句试听菜单
 │   ├── render_paper_video.py         # 1080p MP4 合成引擎（红框 + 双语字幕 + TTS）
 │   └── verify_video.py               # 分辨率、音视频流、时长与同步验收工具
 └── examples/
     ├── sample_paper.pdf             # 示例双页学术论文 PDF（含公式、架构图与消融实验表）
     ├── sample_dialogue.json         # 示例 5 轮男女组会对话与红框坐标配置
-    ├── sample_voice_casting.json    # Azure 默认选角、情绪映射与试听台词
+    ├── sample_voice_casting.json    # Azure 选角、情绪映射与试听台词
+    ├── sample_local_voice_casting.json # Lemonade/Kokoro 本地选角与试听台词
     ├── sample_web_brief.json        # 示例网页证据地图与完整视觉清单
     ├── web-reader-demo/             # 可直接打开的离线网页成品
     └── paper_ear_demo.mp4           # 实际渲染生成的 1080p 组会讲解示例视频
