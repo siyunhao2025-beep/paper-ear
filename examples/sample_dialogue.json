@@ -1,0 +1,104 @@
+{
+  "title": "Sparse-Ear: Dynamic Token Routing for Long-Context Reasoning",
+  "male_name": "师兄 Alex (提问/思辨)",
+  "female_name": "主讲人 Lin (精读讲解)",
+  "male_voice": "zh-CN-YunxiNeural",
+  "female_voice": "zh-CN-XiaoxiaoNeural",
+  "turns": [
+    {
+      "page": 1,
+      "section_tag": "Page 1 • Abstract & Motivation",
+      "speaker": "female",
+      "zh_text": "大家好！今天组会我们精读这篇 Sparse-Ear 论文。先看红框里的摘要，它主要解决长序列下自注意力 O(N²) 复杂度与 KV 显存爆炸痛点。",
+      "en_text": "Hi everyone! Today we're presenting Sparse-Ear. Looking at the highlighted Abstract, it tackles the O(N^2) complexity and KV-cache bottleneck in long contexts.",
+      "red_box": [
+        0.09,
+        0.165,
+        0.91,
+        0.325
+      ],
+      "box_label": "Abstract / 核心痛点与动机",
+      "card_title": "核心动机与背景 (Motivation)",
+      "notes": [
+        "传统 Transformer 在 128K 长文本下显存与计算开销呈二次方暴涨",
+        "本文提出动态稀疏路由 (Dynamic Token Routing)，兼顾速度与跨段落推理精度"
+      ]
+    },
+    {
+      "page": 1,
+      "section_tag": "Page 1 • Core Innovations & Terms",
+      "speaker": "male",
+      "zh_text": "我看导论红框里列了三个创新点，其中专业名词 Soft-Gumbel Capacity Gate 和传统的硬截断 Top-K 门控有什么本质区别？",
+      "en_text": "In the highlighted Introduction contributions, how does the technical term 'Soft-Gumbel Capacity Gate' differ from standard hard Top-K pruning?",
+      "red_box": [
+        0.08,
+        0.34,
+        0.92,
+        0.58
+      ],
+      "box_label": "三大核心创新点 & 专业名词提问",
+      "card_title": "专业名词深度解析 (Terminology)",
+      "notes": [
+        "Hard Top-K (硬截断): 丢弃低分 Token 时梯度直接归零，无法端到端反向传播训练路由器",
+        "Soft-Gumbel Gate: 引入温度退火连续松弛，训练期保留可微梯度，推理期实现稀疏加速"
+      ]
+    },
+    {
+      "page": 1,
+      "section_tag": "Page 1 • Equations (1) & (2)",
+      "speaker": "female",
+      "zh_text": "问到关键了！请看下方红框里的公式 (1) 和 (2)：路由器通过温度系数 tau 控制 Gumbel 分布软门控，将重要锚点送入重度注意力分支。",
+      "en_text": "Great question! Look at Equations (1) and (2) in the red box: temperature tau anneals the Gumbel soft gate, routing key anchors to Heavy Attention.",
+      "red_box": [
+        0.09,
+        0.68,
+        0.91,
+        0.81
+      ],
+      "box_label": "Eq. (1) & (2) 软门控与双分支融合公式",
+      "card_title": "核心公式拆解 (Formulation)",
+      "notes": [
+        "公式 (1): g_i = Sigmoid((x_i·W_r + Gumbel)/tau)，退火温度逐步趋近 0.1",
+        "公式 (2): 重度分支处理 25% 核心语义锚点，轻量分支以 O(N) 池化保留全局上下文"
+      ]
+    },
+    {
+      "page": 2,
+      "section_tag": "Page 2 • Figure 1 Architecture",
+      "speaker": "female",
+      "zh_text": "翻到第 2 页上方的红框架构图 Figure 1，输入序列经过黄色的 Soft-Gumbel 路由器后，精准分流到上下两条计算分支并最终融合。",
+      "en_text": "Turning to Figure 1 in the red box on Page 2, input tokens pass through the yellow Soft-Gumbel Router and split into Heavy and Light branches.",
+      "red_box": [
+        0.08,
+        0.068,
+        0.92,
+        0.41
+      ],
+      "box_label": "Figure 1: 双分支动态稀疏路由架构图",
+      "card_title": "模型架构图解 (Architecture)",
+      "notes": [
+        "上方红色分支 (Heavy Attention): 仅保留 25% 精确 KV Cache，专注长程多跳推理",
+        "下方绿色分支 (Light O(N) Pool): 线性复杂度压缩背景信息，防止信息丢失"
+      ]
+    },
+    {
+      "page": 2,
+      "section_tag": "Page 2 • Table 1 Ablation Results",
+      "speaker": "male",
+      "zh_text": "再看下方红框的 Table 1 实验对比：显存直接降低了 58%，推理提速 3.4 倍，而且 LongBench 准确率还反超了基线 2.1 个百分点！",
+      "en_text": "And checking Table 1 in the bottom red box: KV memory drops by 58% with a 3.4x speedup, while LongBench accuracy beats the baseline by +2.1%!",
+      "red_box": [
+        0.08,
+        0.49,
+        0.92,
+        0.77
+      ],
+      "box_label": "Table 1: 128K 长文本消融实验与加速对比",
+      "card_title": "实验结论与组会总结 (Takeaways)",
+      "notes": [
+        "相比 Full FlashAttention-2：KV 显存减少 58%，推理速度提升 3.4x",
+        "消融实验验证：去掉 Soft-Gumbel 门控会导致准确率下降 2.4%，证明可微路由至关重要"
+      ]
+    }
+  ]
+}
