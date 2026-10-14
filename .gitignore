@@ -4,3 +4,9 @@ __pycache__/
 venv/
 runs/
 *.tmp
+
+# Never commit user-supplied or local test papers.
+private-inputs/
+user-papers/
+local-test-papers/
+*_原文.pdf

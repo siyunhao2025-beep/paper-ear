@@ -77,6 +77,9 @@ def group_words_into_blocks(words, page_w, page_h, y_tolerance=12.0):
         result.append({
             "block_id": idx + 1,
             "text": full_text[:300] + ("..." if len(full_text) > 300 else ""),
+            # Keep the compact field for existing video workflows, while exposing
+            # the complete extraction for visual inventories and deep web reading.
+            "full_text": full_text,
             "bbox_norm": [
                 round(max(0.0, b["x0"] / page_w), 4),
                 round(max(0.0, b["top"] / page_h), 4),

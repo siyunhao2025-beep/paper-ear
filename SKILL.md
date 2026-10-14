@@ -1,11 +1,11 @@
 ---
 name: paper-ear
-description: Turn academic-paper PDFs into evidence-grounded 1080p MP4 group-meeting videos with two-speaker dialogue, synchronized Chinese-English subtitles, and page-accurate red-box plus zoom tracking. Use when the user mentions paper-ear; asks to convert a research paper, PDF, or arXiv paper into a video or MP4 explanation; wants a bilingual paper walkthrough or lab-meeting presentation; or wants exact passages, equations, figures, and tables highlighted while they are discussed.
+description: Turn academic-paper PDFs into evidence-grounded interactive offline web readers or 1080p MP4 group-meeting videos. Use when the user mentions paper-ear; asks to convert a research paper, PDF, or arXiv paper into a quick-browse website, HTML evidence reader, visual paper summary, video, or MP4 explanation; wants a bilingual paper walkthrough or lab-meeting presentation; or wants exact passages, equations, figures, and tables preserved with page-accurate source locations.
 ---
 
 # Paper Ear
 
-Create a two-speaker research-paper walkthrough that stays visibly tied to the source PDF. The final video combines a presenter and a critical discussant, bilingual subtitles, page-accurate red-box tracking, a synchronized zoom panel, and compact terminology cards.
+Create a source-grounded paper walkthrough in the format the reader will actually use. The web mode is a searchable, responsive, offline evidence reader with three reading depths and source-pixel crops of every included figure, table, and displayed equation. The video mode is a two-speaker 1080p group meeting with bilingual subtitles, page-accurate red-box tracking, synchronized zoom, and terminology cards.
 
 Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundled scripts with absolute paths under `<SKILL_DIR>`; do not assume the current working directory is the skill directory.
 
@@ -17,6 +17,16 @@ Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundle
 4. Paraphrase the paper. Use short quotations only when exact wording is essential.
 5. Do not guess at unreadable scans, tables, equations, or cropped figures. Report the unreadable region, try OCR or visual inspection when available, and lower the claim ceiling accordingly.
 6. Do not silently deliver cadence-only fallback audio as narration. A publishable video must complete with real TTS under `--require-tts`.
+7. Treat user-supplied PDFs as local test/private inputs by default. Keep them in the run or delivery directory; never copy them into a Git repository, public example, installed Skill package, or remote service without explicit permission.
+8. For web mode, preserve searchable synthesis as text and preserve visual evidence as source-pixel crops. Never replace plots or tables with AI-redrawn approximations.
+9. Do not claim complete visual coverage from parser output alone. Visually inspect every rendered page, account for each numbered figure, table, and substantive displayed equation, and record any intentional exclusion.
+
+## Choose the output mode
+
+- Use **interactive web reader** when the user asks for quick browsing, a webpage/HTML, animation, searchable reading, or preservation of all figures/tables/formulas.
+- Use **group-meeting video** when the user explicitly asks for MP4, narration, a two-speaker discussion, subtitles, or a presentation they can watch.
+- Produce both only when the user requests both. Do not make the expensive video path a prerequisite for the web path.
+- If the request is ambiguous, infer the mode from the desired consumption pattern; ask only when the choice would materially change the deliverable.
 
 ## Run layout
 
@@ -26,6 +36,12 @@ Use one run directory so the work is resumable and inspectable:
 <run_dir>/
 ├── paper_structure.json
 ├── pages/
+├── visual_inventory.json
+├── web_brief.json
+├── web_brief_qa.json
+├── site/
+├── web_render_report.json
+├── web_qa.json
 ├── dialogue_script.json
 ├── script_qa.json
 ├── preview.mp4
@@ -35,9 +51,123 @@ Use one run directory so the work is resumable and inspectable:
 └── snapshots/
 ```
 
-Keep intermediate artifacts in the run directory. Deliver the final MP4; provide QA artifacts only when the user asks or when a warning needs explanation.
+Keep intermediate artifacts in the run directory. Deliver `site/index.html` or a ZIP for web mode, and the final MP4 for video mode. Provide QA artifacts only when the user asks or when a warning needs explanation.
 
-## Workflow
+## Interactive web-reader workflow
+
+The default implementation is intentionally lightweight and local: `pdfplumber`, Pillow, and Poppler. If a difficult PDF has broken reading order, complex tables, or inaccessible formulas, use MinerU, Docling, or Marker only as an optional enhanced parser when available. Their output is still a candidate structure that requires page-image review. See [references/web-design-provenance.md](references/web-design-provenance.md) for the surveyed mechanisms and dependency decision.
+
+### W1. Inspect the full source
+
+Require a readable local PDF. If the user supplies a lawful public URL, download it into the run directory; do not add it to the Skill repository.
+
+```bash
+python <SKILL_DIR>/scripts/inspect_paper.py \
+  --pdf /absolute/path/to/paper.pdf \
+  --out <run_dir>/paper_structure.json \
+  --render-dir <run_dir>/pages \
+  --dpi 180
+```
+
+Read the full accessible paper and inspect the rendered pages. `paper_structure.json` keeps a compact `text` field for video compatibility and a `full_text` field for deep reading and caption inventory.
+
+### W2. Inventory every visual region
+
+Seed a review list:
+
+```bash
+python <SKILL_DIR>/scripts/build_visual_inventory.py \
+  --structure <run_dir>/paper_structure.json \
+  --out <run_dir>/visual_inventory.json
+```
+
+Then inspect every page image. For each numbered figure, table, and substantive displayed equation, record:
+
+- kind, label, 1-indexed PDF page, and normalized bounding box;
+- faithful caption paraphrase, useful alt text, and why it matters;
+- whether it is included or intentionally excluded, with a concrete reason.
+
+Do not mark the inventory `complete` until manual review accounts for all regions. Caption detection can miss raster pages and confuse an in-text reference with the actual visual.
+
+### W3. Build the argument and evidence map
+
+Write `<run_dir>/web_brief.json`. Read [references/web-brief-schema.md](references/web-brief-schema.md) for the complete contract and [examples/sample_web_brief.json](examples/sample_web_brief.json) for a runnable example.
+
+The reader must include:
+
+- a one-sentence answer, at least three 30-second points, and a compact three-minute synthesis;
+- an argument spine organized by problem, method, evidence, and boundary rather than by PDF headings alone;
+- a claim ledger separating `paper_evidence`, `author_claim`, `inference`, and `critique`, with evidence strength and page anchors;
+- the complete reviewed visual inventory, using source-pixel crops rather than redraws;
+- deep-reading sections, author limitations, independent critique, group-meeting questions, and a contextual glossary.
+
+Prioritize the strongest internal evidence. For diagnostic papers, a controlled transition, repeated pattern, or ablation may be more probative than a headline correlation. State that judgment as critique/inference, not as the authors' direct result.
+
+### W4. Validate the brief
+
+```bash
+python <SKILL_DIR>/scripts/validate_web_brief.py \
+  --pdf /absolute/path/to/paper.pdf \
+  --brief <run_dir>/web_brief.json \
+  --strict \
+  --json-out <run_dir>/web_brief_qa.json
+```
+
+Fix every error. Strict mode requires a complete visual inventory, consistent included/excluded counts, valid page geometry, source anchors, and at least one explicit evidence boundary.
+
+### W5. Render the offline site
+
+```bash
+python <SKILL_DIR>/scripts/render_paper_web.py \
+  --pdf /absolute/path/to/paper.pdf \
+  --brief <run_dir>/web_brief.json \
+  --output-dir <run_dir>/site \
+  --pages-dir <run_dir>/pages \
+  --copy-pdf \
+  --report-json <run_dir>/web_render_report.json
+```
+
+The output is a dependency-free static site. It contains three reading modes, an evidence rail, in-page search, figure/table/equation filters, source-crop zoom, original-page location view, local bookmarks, responsive layout, print styles, and reduced-motion support. It must not contain remote scripts, remote stylesheets, analytics, or automatic network calls.
+
+Use `--copy-pdf` for a local/offline delivery when page links are useful. This copies the PDF only into the local site directory; it does not authorize committing or uploading that PDF.
+
+### W6. Verify content and files
+
+```bash
+python <SKILL_DIR>/scripts/verify_web_reader.py \
+  --site <run_dir>/site \
+  --strict \
+  --json-out <run_dir>/web_qa.json
+```
+
+This gate checks required files and controls, all crop/source images, image dimensions, DOM IDs, inventory counts, offline resources, alt text, placeholders, and the optional local source PDF.
+
+### W7. Test the real interaction
+
+Open the generated `index.html` in a headless Chromium browser. At minimum:
+
+- switch among 30-second, three-minute, and deep-reading modes;
+- search a headline metric and a visual label;
+- apply each visual filter;
+- open every crop, switch to its original-page view, and close the dialog;
+- confirm all images have nonzero natural dimensions and source-page links are correct;
+- inspect desktop and 390 px mobile screenshots;
+- verify no horizontal overflow or uncaught JavaScript error.
+
+Follow [references/web-quality-checklist.md](references/web-quality-checklist.md). Deterministic validation does not replace visual inspection.
+
+### W8. Deliver the reader
+
+Give the user a clickable `index.html` and, when useful, a ZIP containing the site. Briefly state:
+
+- the reading modes and number of claims/sections;
+- figure/table/equation counts and whether the inventory is complete;
+- which validation and browser gates passed;
+- any unresolved source limitation.
+
+Do not imply the local test PDF was published or uploaded.
+
+## Group-meeting video workflow
 
 ### 1. Preflight the source and environment
 
@@ -195,6 +325,11 @@ Do not create PPTX, Markdown reports, social-media cuts, or additional deliverab
 ## Failure handling
 
 - **Scanned or image-only PDF:** attempt OCR if an available PDF/OCR tool supports it; otherwise identify unreadable pages and avoid unsupported details.
+- **Visual inventory misses labels:** inspect every rendered page, add missed raster captions or bare equation regions manually, and keep `inventory.status` partial until counts reconcile.
+- **Complex reading order/table/formula:** try an available enhanced parser such as MinerU, Docling, or Marker, but retain the original page images as the visual source of truth.
+- **Web crop is wrong or clipped:** adjust `bbox_norm`, rerender, and inspect both the crop and red-box source page; never hide the item merely to pass the count gate.
+- **Browser interaction fails:** repair the HTML/CSS/JavaScript and repeat desktop plus mobile testing; a deterministic file check alone is not sufficient.
+- **Private/test PDF is inside a repository path:** move the run and delivery artifacts outside the repository before any commit or push, and confirm the source file is absent from `git status` and the staged file list.
 - **Text locator misses a figure or equation:** set `red_box` manually from the rendered page and keep `search_text` only when it resolves to the same target.
 - **TTS unavailable:** allow cadence audio only for preview. A publishable run must stop under `--require-tts`.
 - **Long subtitle or card text:** split the turn or shorten the paraphrase; do not reduce the font until it becomes hard to read.
