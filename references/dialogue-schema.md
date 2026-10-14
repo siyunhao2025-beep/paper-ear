@@ -11,8 +11,8 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 | `female_name` | yes in strict mode | Display name and role for the presenter. |
 | `male_voice` | one voice source required | Backward-compatible male voice name; `voice_profiles.male.voice` may replace it. |
 | `female_voice` | one voice source required | Backward-compatible female voice name; `voice_profiles.female.voice` may replace it. |
-| `voice_backend` | no | `edge-tts` (backward-compatible default), `azure-speech`, or `lemonade-local`. |
-| `voice_model` | recommended for local | Local model shared by both roles, normally `kokoro-v1`; a profile-level model overrides it. |
+| `voice_backend` | no | `kokoro-zh-local` (recommended offline Mandarin), `edge-tts`, `azure-speech`, or `lemonade-local`. |
+| `voice_model` | recommended for local | Local model shared by both roles; use `kokoro-v1.1-zh` with `kokoro-zh-local`. A profile-level model overrides it. |
 | `voice_profiles` | recommended | Female/male voice, optional local model/voice-design description, default style, emotion-to-style map, and baseline prosody. |
 | `interaction_mode` | no | Set to `evidence-dialogue-v2` to enforce real question/answer dynamics. |
 | `turns` | yes | Ordered, non-empty array of dialogue turns. |
@@ -25,7 +25,7 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 | `speaker` | yes | `female` or `male`. |
 | `zh_text` | yes in strict mode | Chinese subtitle and default spoken text. |
 | `en_text` | yes in strict mode | English subtitle. |
-| `spoken_text` | no | Optional narration override. When absent, the renderer uses `zh_text`, then `en_text`. |
+| `spoken_text` | no | Optional narration override. When absent, the renderer uses `zh_text`, then `en_text`. For `kokoro-zh-local`, make this pronunciation-ready Mandarin; embedded Latin terms use an English fallback and must be auditioned. |
 | `section_tag` | yes in strict mode | Short page/section label shown in the video. |
 | `red_box` | conditional | Normalized `[x0, y0, x1, y1]`. Required unless `search_text` can locate the target. |
 | `search_text` | recommended | A distinctive source phrase or caption used to find/refine the box. |
@@ -63,7 +63,7 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 
 `style_degree` accepts `0.01..2.0`; prefer `<= 1.15` for ordinary turns and `<= 1.30` for a justified peak. Pauses accept `0..5000` milliseconds. Edge TTS uses rate/pitch/volume and ignores Azure-only style semantics; Azure Speech uses the complete SSML delivery object. For the default Chinese voices, `emphasis_terms` are expressed with a slight local slowdown/pitch lift because Azure documents native word-level `<emphasis>` tuning for only a small English-voice subset.
 
-For `lemonade-local`, use `voice_profiles.<speaker>.model` and `.voice`. The tested lightweight Mandarin default is `kokoro-v1` with female voices `zf_xiaobei`, `zf_xiaoni`, `zf_xiaoxiao`, `zf_xiaoyi` and male voices `zm_yunjian`, `zm_yunxi`, `zm_yunxia`, `zm_yunyang`. Kokoro honors speed but does not implement Azure speaking styles; `provider_style`, pitch, volume, and emphasis remain semantic direction or report metadata rather than guaranteed acoustic controls. Optional MOSS models may also accept `voice_design_description`, but require a much larger local download.
+For `kokoro-zh-local`, use model `kokoro-v1.1-zh`; the curated menu contains female voices `zf_001`, `zf_018`, `zf_046`, `zf_090` and male voices `zm_010`, `zm_033`, `zm_066`, `zm_098`. It uses Misaki 1.1 Chinese G2P and runs entirely on-device. Kokoro honors speed but does not implement Azure speaking styles; `provider_style`, pitch, volume, and emphasis remain semantic direction or report metadata rather than guaranteed acoustic controls. Legacy `lemonade-local` + `kokoro-v1` Mandarin is disabled because it failed intelligibility testing. Optional Lemonade MOSS models may accept `voice_design_description`, but require a much larger local download.
 
 Allowed `interaction_tags` are `question`, `disagreement`, `surprise`, `concession`, `self_correction`, `reverse_question`, and `unresolved`. Use only tags that describe an actual conversational event.
 

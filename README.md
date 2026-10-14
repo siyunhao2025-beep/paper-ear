@@ -252,13 +252,13 @@ python3 scripts/verify_video.py \
 
 ## 🎙️ 男女双人语音声线配置 (Voice Configuration)
 
-Paper-Ear 现在支持三条真实语音链路：`lemonade-local` 是免费、免账号、首次下载后可断网使用的本地默认；`edge-tts` 是无需密钥的在线轻量方案；`azure-speech` 是带明确情绪/风格控制的云端升级。网络、模型或凭据不可用时，脚本只会生成用于视觉计时的 `offline-cadence`；它**不是可听懂的旁白**。正式成片请始终启用 `--require-tts`，以阻止静默降级。
+普通话本地默认是 `kokoro-zh-local`：专用 `kokoro-v1.1-zh` 模型配合 Misaki 1.1 中文发音器，免费、免账号，首次下载后可断网使用。`lemonade-local` 保留给 MOSS 等可选本地模型；旧版 Lemonade + `kokoro-v1` 的中文链路因听辨度未过关，默认禁用。`edge-tts` 是无需密钥的在线轻量方案，`azure-speech` 是带明确情绪/风格控制的云端升级。模型或凭据不可用时，脚本只会生成用于视觉计时的 `offline-cadence`；它**不是可听懂的旁白**。正式成片请始终启用 `--require-tts`，以阻止静默降级。
 
-本地默认使用 Lemonade + `kokoro-v1`（约 0.354 GB）。安装后只需一次：
+安装 Python 依赖后，下载并校验普通话专用模型（模型与音色文件合计约 379 MB，只保存在用户缓存，不写入仓库）：
 
 ```powershell
-lemonade backends install kokoro:cpu
-lemonade pull kokoro-v1
+python -m pip install -r requirements.txt
+python scripts/setup_mandarin_voice.py
 ```
 
 先用同一句台词生成 8 个中文音色试听。页面会把每个声音的听感、适合角色和使用提醒直接写在播放器旁边；这些标签来自同句试听的相对时长、音高、响度与选角判断，不冒充官方人格定义：
@@ -270,10 +270,10 @@ python scripts/render_local_voice_menu.py `
 
 | 角色 | 已实测本地音色 | 默认 |
 | :--- | :--- | :--- |
-| 女声主讲人 | `zf_xiaobei` / `zf_xiaoni` / `zf_xiaoxiao` / `zf_xiaoyi` | `zf_xiaobei` |
-| 男声质疑者 | `zm_yunjian` / `zm_yunxi` / `zm_yunxia` / `zm_yunyang` | `zm_yunjian` |
+| 女声主讲人 | `zf_001` / `zf_018` / `zf_046` / `zf_090` | `zf_090` |
+| 男声质疑者 | `zm_010` / `zm_033` / `zm_066` / `zm_098` | `zm_033` |
 
-必须诚实说明：Kokoro 官方音色卡把普通话预设的综合等级标为 D，并提醒非英语支持和极短/极长句可能退化。因此它适合作为免费离线默认和选角预览，不能承诺达到真人演员的情绪表现。需要更强表现力时，可选 Lemonade 的 MOSS 本地档（目录快照约 8.5–12.5 GB，音色设计还可能需要额外权重）或 Azure；不要把大模型下载伪装成轻量安装。
+必须诚实说明：专用中文模型解决的是“普通话发音路径”，不等于真人演员级情绪。试听页中的音高、响度和时长来自同句测量，角色特点是选角建议，不是官方人格定义。完整视频前仍须由用户确认每个字都听得清；技术生成成功不能替代听感验收。需要更强表现力时，可选 Lemonade 的 MOSS 本地档（目录快照约 8.5–12.5 GB，音色设计还可能需要额外权重）或 Azure；不要把大模型下载伪装成轻量安装。
 
 不读取 PDF 的本地双人试听：
 
@@ -304,7 +304,7 @@ python scripts/render_voice_auditions.py \
   --output-dir /tmp/paper-ear-audition
 ```
 
-本地语音默认只访问 `127.0.0.1`；在线语音接口只接收最终旁白文本与 SSML 控制。PDF、全文、页面图、图表和本地路径均不会发送。完整选角、隐私边界、试听门槛与互动改写提示词见 [`references/voice-casting-and-dialogue.md`](./references/voice-casting-and-dialogue.md)，本地引擎取舍与许可证快照见 [`references/local-voice-provenance.md`](./references/local-voice-provenance.md)。
+`kokoro-zh-local` 在当前 Python 进程内离线合成；在线语音接口只接收最终旁白文本与 SSML 控制。PDF、全文、页面图、图表和本地路径均不会发送。完整选角、隐私边界、试听门槛与互动改写提示词见 [`references/voice-casting-and-dialogue.md`](./references/voice-casting-and-dialogue.md)，本地引擎取舍与许可证快照见 [`references/local-voice-provenance.md`](./references/local-voice-provenance.md)。
 
 ## 📐 对话与红框配置规范 (Script JSON Schema)
 
@@ -315,10 +315,10 @@ python scripts/render_voice_auditions.py \
   "title": "Sparse-Ear: Dynamic Token Routing for Long-Context Reasoning",
   "male_name": "师兄 Alex (提问/思辨)",
   "female_name": "主讲人 Lin (精读讲解)",
-  "voice_backend": "lemonade-local",
-  "voice_model": "kokoro-v1",
-  "male_voice": "zm_yunjian",
-  "female_voice": "zf_xiaobei",
+  "voice_backend": "kokoro-zh-local",
+  "voice_model": "kokoro-v1.1-zh",
+  "male_voice": "zm_033",
+  "female_voice": "zf_090",
   "turns": [
     {
       "page": 1,

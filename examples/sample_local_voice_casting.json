@@ -1,12 +1,12 @@
 {
-  "voice_backend": "lemonade-local",
-  "voice_model": "kokoro-v1",
-  "female_voice": "zf_xiaobei",
-  "male_voice": "zm_yunjian",
+  "voice_backend": "kokoro-zh-local",
+  "voice_model": "kokoro-v1.1-zh",
+  "female_voice": "zf_090",
+  "male_voice": "zm_033",
   "voice_profiles": {
     "female": {
-      "model": "kokoro-v1",
-      "voice": "zf_xiaobei",
+      "model": "kokoro-v1.1-zh",
+      "voice": "zf_090",
       "default_style": "natural conversation",
       "style_degree": 1.0,
       "rate": "+1%",
@@ -14,8 +14,8 @@
       "volume": "+0%"
     },
     "male": {
-      "model": "kokoro-v1",
-      "voice": "zm_yunjian",
+      "model": "kokoro-v1.1-zh",
+      "voice": "zm_033",
       "default_style": "natural conversation",
       "style_degree": 1.0,
       "rate": "-2%",

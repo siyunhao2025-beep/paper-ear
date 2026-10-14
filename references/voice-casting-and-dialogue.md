@@ -1,10 +1,12 @@
 # Voice Casting and Evidence-Dialogue Guide
 
-This guide adds human-sounding delivery without turning a paper review into staged banter. Prefer `lemonade-local` with Kokoro when the user wants a free, account-free, offline preview. Use Azure Speech or the optional local MOSS tier when stronger acting and fine-grained voice direction matter. Edge TTS remains a lightweight online alternative, but it cannot provide the same per-turn style control.
+This guide adds human-sounding delivery without turning a paper review into staged banter. Prefer `kokoro-zh-local` with the dedicated Kokoro v1.1-zh model and Misaki Chinese frontend when the user wants free, account-free, offline Mandarin. Use Azure Speech or the optional local MOSS tier when stronger acting and fine-grained voice direction matter. Edge TTS remains a lightweight online alternative, but it cannot provide the same per-turn style control.
 
 Official references:
 
 - [AMD local-ai-use Skill](https://github.com/amd/skills/tree/main/skills/local-ai-use)
+- [Kokoro ONNX dedicated Chinese example](https://github.com/thewh1teagle/kokoro-onnx/blob/main/examples/chinese.py)
+- [Kokoro-82M-v1.1-zh model](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh)
 - [Lemonade OpenAI-compatible speech endpoint](https://github.com/lemonade-sdk/lemonade/blob/main/docs/api/openai.md)
 - [Kokoro voice card](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md)
 - [MOSS-TTS](https://github.com/OpenMOSS/MOSS-TTS)
@@ -16,10 +18,10 @@ Official references:
 
 | Role | Voice | Delivery arc | Why it fits |
 |---|---|---|---|
-| Presenter | `zf_xiaobei` | punctuation + concise clauses + evidence pivots | Tested Mandarin female preset; no account or key required. |
-| Discussant | `zm_yunjian` | short challenges + deliberate pauses + follow-ups | Tested Mandarin male preset; clear role contrast without voice cloning. |
+| Presenter | `zf_090` | punctuation + concise clauses + evidence pivots | Balanced female candidate from the dedicated Chinese voice pack; no account or key required. |
+| Discussant | `zm_033` | short challenges + deliberate pauses + follow-ups | Lower, stronger male candidate with clear acoustic contrast. |
 
-These are safe starting points, not objective winners. Run `render_local_voice_menu.py` and let the user compare all eight tested presets. Kokoro's own voice card grades its Mandarin presets D overall, so never describe this tier as human-level emotional acting. See [local-voice-provenance.md](local-voice-provenance.md).
+These are starting points, not objective winners. Run `render_local_voice_menu.py` and let the user compare all eight candidates. The menu's measurements do not replace a listening decision: a voice is approved only after the user can understand every word. The dedicated Chinese path is not a human-level emotional acting engine. See [local-voice-provenance.md](local-voice-provenance.md).
 
 ## Azure expressive cast
 
@@ -49,7 +51,7 @@ Dialect voices can be offered as an optional creative choice, but do not make th
 
 | Provider | Use when | Limitation |
 |---|---|---|
-| `lemonade-local` + `kokoro-v1` | The user wants free, offline, account-free Mandarin previews and several male/female presets. | Fixed voices; weak explicit emotion control; upstream grades the Mandarin presets D overall. |
+| `kokoro-zh-local` + `kokoro-v1.1-zh` | The user wants free, offline, account-free Mandarin and several male/female candidates. | Fixed voices and speed control; no true emotion-style control; requires a one-time ~379 MB model download. |
 | `lemonade-local` + `MOSS-TTS-Local` or `OpenMOSS-TTS` | The user accepts a much larger local download for stronger expressiveness or voice design on supported hardware. | Roughly 8.5-12.5 GB in the tested catalog, with additional voice-design weights possible; benchmark before promising speed. |
 | `azure-speech` | The user wants emotions, speaking styles, pauses, emphasis, and consistent casting. | Requires an Azure Speech key/region and sends final narration text to Azure. |
 | `edge-tts` | The user wants a quick, no-key neural narration preview. | Supports voice/rate/volume/pitch but not custom expressive SSML styles. |
@@ -57,15 +59,16 @@ Dialect voices can be offered as an optional creative choice, but do not make th
 
 ## Privacy boundary
 
-The local Lemonade request may contain only the final narration string plus voice controls and must use a loopback endpoint by default. The online TTS request may contain only the final narration string plus SSML controls. Never send the PDF, page images, extracted full text, tables, figures, equations, citations, run directory, or local file paths. `render_voice_auditions.py` and `render_local_voice_menu.py` do not open the source PDF. `render_paper_video.py` reads the PDF locally for frames while sending only each turn's `spoken_text` (or subtitle fallback) to the selected TTS endpoint.
+`kokoro-zh-local` runs in the current process and uploads nothing. A local Lemonade request may contain only the final narration string plus voice controls and must use a loopback endpoint by default. An online TTS request may contain only the final narration string plus SSML controls. Never send the PDF, page images, extracted full text, tables, figures, equations, citations, run directory, or local file paths. `render_voice_auditions.py` and `render_local_voice_menu.py` do not open the source PDF. `render_paper_video.py` reads the PDF locally for frames while exposing only each turn's final `spoken_text` (or subtitle fallback) to the selected speech backend.
 
 ## Configure free local speech
 
-Install the AMD `local-ai-use` Skill and follow its setup, or install Lemonade Server from its official installer. Then install only the TTS backend/model:
+Install the Python dependencies, then download and verify the three dedicated Mandarin model files:
 
 ```powershell
-lemonade backends install kokoro:cpu
-lemonade pull kokoro-v1
+python -m pip install -r requirements.txt
+python scripts/setup_mandarin_voice.py
+python scripts/setup_mandarin_voice.py --check-only
 ```
 
 Generate the eight-option Mandarin menu with one comparison line:
@@ -83,7 +86,7 @@ python scripts/render_voice_auditions.py `
   --output-dir .\local-audition
 ```
 
-The default endpoint is `http://127.0.0.1:13305/api/v1`. Override it with `PAPER_EAR_LEMONADE_BASE_URL`. A non-loopback endpoint is rejected unless `PAPER_EAR_ALLOW_REMOTE_LEMONADE=1` is explicitly set after the user approves that privacy boundary.
+The default cache is `~/.cache/paper-ear/kokoro-zh-v1.1`. Override it with `PAPER_EAR_KOKORO_ZH_DIR` or the profile's `model_dir`. The weights are intentionally not vendored into the repository. Lemonade remains available for optional local models; its default endpoint is `http://127.0.0.1:13305/api/v1`, and a non-loopback endpoint is rejected unless `PAPER_EAR_ALLOW_REMOTE_LEMONADE=1` is explicitly set after the user approves that privacy boundary.
 
 ## Configure Azure Speech
 
@@ -155,8 +158,8 @@ Use a challenge → evidence answer → follow-up → concession/synthesis rhyth
 For each turn return: speaker, dialogue_act, responds_to_turn, emotion, emotion_intensity, delivery, question_target, interaction_tags, page, evidence_anchor, claim_type, Chinese spoken/subtitle text, English subtitle, red-box target, and concise notes.
 
 Voice default:
-- Free local presenter: zf_xiaobei; use punctuation, compact clauses, and evidence pivots rather than unsupported style claims.
-- Free local discussant: zm_yunjian; use short challenges, deliberate pauses, and follow-up questions.
+- Free local presenter: zf_090 on `kokoro-zh-local`; use punctuation, compact clauses, and evidence pivots rather than unsupported style claims.
+- Free local discussant: zm_033 on `kokoro-zh-local`; use short challenges, deliberate pauses, and follow-up questions.
 - Azure upgrade: zh-CN-XiaoxiaoNeural + zh-CN-YunjianNeural with validated styles and normal style_degree <= 1.15.
 - Use pauses and punctuation to communicate thought; never write stage directions such as “愤怒地说” into spoken text.
 ```

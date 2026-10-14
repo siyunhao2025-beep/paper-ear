@@ -222,11 +222,12 @@ Do not ask questions the user already answered. If the user says to use defaults
 
 ### 3A. Cast and audition the voices
 
-Use `lemonade-local` with `kokoro-v1` when the user wants a free, account-free, offline preview. The default local cast is `zf_xiaobei` for the presenter and `zm_yunjian` for the discussant. Audition all eight tested Mandarin presets with `render_local_voice_menu.py` when the user wants a choice. Keep the menu's per-voice traits, best-fit role, and caution beside each player, and label them as same-line audition judgments rather than official personality definitions. Never imply that Kokoro's speed control equals true emotion control; its upstream card grades the Mandarin presets D overall. Use Azure Speech, or the optional much larger local MOSS tier, when stronger acting matters. Keep Edge TTS as the lightweight online alternative.
+Use `kokoro-zh-local` with the dedicated `kokoro-v1.1-zh` model and Misaki 1.1 Chinese G2P when the user wants free, account-free, offline Mandarin. The default local cast is `zf_090` for the presenter and `zm_033` for the discussant. Install the model with `setup_mandarin_voice.py`, then audition all eight curated Mandarin voices with `render_local_voice_menu.py`. Keep the menu's per-voice traits, acoustic measurements, best-fit role, and caution beside each player, and label them as same-line measurements plus casting judgments rather than official personality definitions. A generated WAV is not proof of intelligibility: the user must confirm that every word is understandable before the full render. Legacy Lemonade/Kokoro v1.0 Mandarin is disabled by default after failing that gate. Never imply that Kokoro's speed control equals true emotion control. Use Azure Speech, or the optional much larger local MOSS tier, when stronger acting matters. Keep Edge TTS as the lightweight online alternative.
 
 Read [references/local-voice-provenance.md](references/local-voice-provenance.md) before installing or recommending a local engine. Create the local Mandarin menu without opening a PDF:
 
 ```bash
+python <SKILL_DIR>/scripts/setup_mandarin_voice.py
 python <SKILL_DIR>/scripts/render_local_voice_menu.py \
   --output-dir <run_dir>/voice-menu
 ```
@@ -242,7 +243,7 @@ python <SKILL_DIR>/scripts/render_voice_auditions.py \
   --dry-run
 ```
 
-For `lemonade-local`, remove `--dry-run` after the loopback server and requested model are ready; no credential is normally required. For online providers, remove it only after the user accepts the provider/privacy boundary and the required credential environment variables are present. Never store credentials in project files.
+For `kokoro-zh-local`, remove `--dry-run` after the three verified model files are ready in the local cache; no credential or server is required. For `lemonade-local`, remove it after the loopback server and requested non-legacy model are ready. For online providers, remove it only after the user accepts the provider/privacy boundary and the required credential environment variables are present. Never store credentials in project files.
 
 ### 4. Confirm the dialogue storyboard
 
@@ -338,7 +339,7 @@ Then sample frames at the beginning, middle, end, and every figure/table turn. F
 - every intended figure/table/equation is framed correctly;
 - subtitles and cards stay within their panels and do not obscure evidence;
 - the final file has both video and audio streams, the expected resolution, and no truncated final turn;
-- `render_report.json` reports only the configured real provider (`lemonade-local`, `azure-speech`, or `edge-tts`) for a publishable run, with the intended voice/model and supported controls on every turn.
+- `render_report.json` reports only the configured real provider (`kokoro-zh-local`, `lemonade-local`, `azure-speech`, or `edge-tts`) for a publishable run, with the intended voice/model and supported controls on every turn.
 
 ### 9. Deliver
 
@@ -361,7 +362,8 @@ Do not create PPTX, Markdown reports, social-media cuts, or additional deliverab
 - **Browser interaction fails:** repair the HTML/CSS/JavaScript and repeat desktop plus mobile testing; a deterministic file check alone is not sufficient.
 - **Private/test PDF is inside a repository path:** move the run and delivery artifacts outside the repository before any commit or push, and confirm the source file is absent from `git status` and the staged file list.
 - **Text locator misses a figure or equation:** set `red_box` manually from the rendered page and keep `search_text` only when it resolves to the same target.
-- **TTS unavailable:** for local mode, verify Lemonade health, install the `kokoro:cpu` backend, and pull `kokoro-v1`; for online mode, generate a dry-run request/SSML plan and explain which credential is missing. Cadence audio is allowed only for visual timing; voice approval and publishable runs must stop under `--require-tts`.
+- **TTS unavailable:** for default Mandarin local mode, run `setup_mandarin_voice.py --check-only`, verify `kokoro-onnx` and `misaki-fork[zh]`, and keep the model outside the repository; for Lemonade/MOSS, verify the loopback service and requested model. For online mode, generate a dry-run request/SSML plan and explain which credential is missing. Cadence audio is allowed only for visual timing; voice approval and publishable runs must stop under `--require-tts`.
+- **Mandarin is garbled or unintelligible:** invalidate the audition even when the WAV is structurally valid. Confirm the backend is `kokoro-zh-local`, the model is `kokoro-v1.1-zh`, and the report says `g2p: misaki-zh-1.1`; regenerate the same-line menu and require a fresh listening decision. Do not fall back to legacy Kokoro v1.0 Mandarin.
 - **Voice sounds synthetic:** audition the full local voice menu, add semantic pauses, shorten clauses, and verify that the selected model actually supports the requested control. Do not claim Kokoro has emotion styles, and do not fix flat delivery by inserting stage directions into spoken text. Offer MOSS/Azure as an explicit quality upgrade rather than hiding the limitation.
 - **Dialogue feels like alternating narration:** rewrite around the weakest assumptions and strongest internal evidence, link each question to an answer, then rerun the `evidence-dialogue-v2` metrics instead of adding filler interjections.
 - **Long subtitle or card text:** split the turn or shorten the paraphrase; do not reduce the font until it becomes hard to read.

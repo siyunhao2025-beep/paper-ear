@@ -92,8 +92,8 @@ def main():
     manifest = {
         "voice_backend": backend,
         "privacy_scope": (
-            "Local Lemonade synthesis stays on the configured machine; no PDF, page image, or narration is sent to a cloud provider."
-            if backend == "lemonade-local"
+            "Local synthesis stays on the configured machine; no PDF, page image, or narration is sent to a cloud provider."
+            if backend in {"lemonade-local", "kokoro-zh-local"}
             else "Only the final audition text is eligible for online synthesis; no PDF or page image is read or sent."
         ),
         "dry_run": bool(args.dry_run),
@@ -140,6 +140,26 @@ def main():
                     encoding="utf-8",
                 )
                 record["request_file"] = request_path.name
+            elif backend == "kokoro-zh-local":
+                plan_path = output_dir / f"{clip_id}.local-plan.json"
+                plan_path.write_text(
+                    json.dumps(
+                        {
+                            "voice_backend": backend,
+                            "model": profile.get("model"),
+                            "voice": profile["voice"],
+                            "language": "zh-CN",
+                            "g2p": "misaki-zh-1.1",
+                            "speed": delivery["rate"],
+                            "text": text,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                record["plan_file"] = plan_path.name
             record["status"] = "planned"
         else:
             wav_path = output_dir / f"{clip_id}.wav"
@@ -166,8 +186,8 @@ def main():
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     action = "Planned" if args.dry_run else "Rendered"
     print(f"{action} {len(manifest['clips'])} voice audition(s): {manifest_path}")
-    if backend == "lemonade-local":
-        print("Privacy: this workflow does not open the source PDF; synthesis runs through the configured local endpoint.")
+    if backend in {"lemonade-local", "kokoro-zh-local"}:
+        print("Privacy: this workflow does not open the source PDF; synthesis stays on the configured machine.")
     else:
         print("Privacy: this workflow does not open or upload the source PDF; online synthesis receives narration text only.")
     return 0

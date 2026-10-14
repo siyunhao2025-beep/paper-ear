@@ -4,6 +4,7 @@
 import argparse
 import importlib.util
 import json
+import os
 import re
 import shutil
 import sys
@@ -23,10 +24,11 @@ INTERACTION_TAGS = {
     "reverse_question",
     "unresolved",
 }
-VOICE_BACKENDS = {"edge-tts", "azure-speech", "lemonade-local"}
-LEMONADE_KOKORO_ZH_VOICES = {
-    "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi",
-    "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
+VOICE_BACKENDS = {"edge-tts", "azure-speech", "kokoro-zh-local", "lemonade-local"}
+KOKORO_ZH_MODEL = "kokoro-v1.1-zh"
+KOKORO_ZH_VOICES = {
+    "zf_001", "zf_018", "zf_046", "zf_090",
+    "zm_010", "zm_033", "zm_066", "zm_098",
 }
 AZURE_VOICE_STYLES = {
     "zh-CN-XiaoxiaoNeural": {
@@ -45,7 +47,35 @@ AZURE_VOICE_STYLES = {
     "zh-CN-YunyangNeural": {"customerservice", "narration-professional", "newscast-casual"},
 }
 REQUIRED_TOOLS = ("ffmpeg", "ffprobe", "pdftoppm")
-RENDER_MODULES = {"PIL": "Pillow", "numpy": "numpy", "edge_tts": "edge-tts"}
+RENDER_MODULES = {
+    "PIL": "Pillow",
+    "numpy": "numpy",
+    "edge_tts": "edge-tts",
+    "kokoro_onnx": "kokoro-onnx",
+    "misaki": "misaki-fork[zh]",
+}
+
+
+def validate_kokoro_zh_runtime(profile, errors, speaker):
+    profile = profile if isinstance(profile, dict) else {}
+    model_dir = Path(
+        os.environ.get("PAPER_EAR_KOKORO_ZH_DIR")
+        or profile.get("model_dir")
+        or (Path.home() / ".cache" / "paper-ear" / "kokoro-zh-v1.1")
+    ).expanduser()
+    filenames = {
+        "model": "kokoro-v1.1-zh.onnx",
+        "voices": "voices-v1.1-zh.bin",
+        "config": "config.json",
+    }
+    for kind, filename in filenames.items():
+        path = Path(profile.get(f"{kind}_path") or model_dir / filename).expanduser()
+        if not path.is_file():
+            add_issue(
+                errors,
+                "missing_mandarin_model_file",
+                f"{speaker} profile is missing {kind} file '{path}'. Run scripts/setup_mandarin_voice.py.",
+            )
 
 
 def add_issue(items, code, message, turn=None):
@@ -275,17 +305,34 @@ def validate_script(script_path, page_count, strict, errors, warnings):
         if not nonempty_string(voice):
             target = errors if strict else warnings
             add_issue(target, f"missing_{speaker}_voice", f"Provide voice_profiles.{speaker}.voice or {speaker}_voice.")
+        if backend == "kokoro-zh-local":
+            validate_kokoro_zh_runtime(profile, errors, speaker)
+            model = profile.get("model") if isinstance(profile, dict) else data.get("voice_model")
+            model = model or KOKORO_ZH_MODEL
+            if model != KOKORO_ZH_MODEL:
+                add_issue(
+                    errors,
+                    f"invalid_{speaker}_mandarin_model",
+                    f"kokoro-zh-local requires model '{KOKORO_ZH_MODEL}', not '{model}'.",
+                )
+            if nonempty_string(voice) and voice not in KOKORO_ZH_VOICES:
+                add_issue(
+                    errors,
+                    "unverified_mandarin_voice",
+                    f"Dedicated Mandarin voice '{voice}' is not in Paper-Ear's auditioned voice set.",
+                )
         if backend == "lemonade-local" and isinstance(profile, dict):
             model = profile.get("model") or data.get("voice_model") or "kokoro-v1"
             if not nonempty_string(model):
                 add_issue(errors, f"missing_{speaker}_voice_model", f"Provide voice_profiles.{speaker}.model.")
             if model == "kokoro-v1" and nonempty_string(voice) and voice.startswith(("zf_", "zm_")):
-                if voice not in LEMONADE_KOKORO_ZH_VOICES:
-                    add_issue(
-                        warnings,
-                        "unverified_local_voice",
-                        f"Kokoro Mandarin voice '{voice}' is not in Paper-Ear's tested Lemonade voice set.",
-                    )
+                target = errors if strict else warnings
+                add_issue(
+                    target,
+                    "legacy_kokoro_mandarin_disabled",
+                    "Legacy Lemonade/Kokoro v1.0 Mandarin failed the intelligibility gate. "
+                    "Use voice_backend 'kokoro-zh-local' with model 'kokoro-v1.1-zh'.",
+                )
 
     interaction_v2 = data.get("interaction_mode") == "evidence-dialogue-v2"
 

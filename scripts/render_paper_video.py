@@ -6,8 +6,8 @@ Features:
 - Dynamic Red Bounding Box (红框) with corner target brackets highlighting the exact paragraph/figure/formula
 - Zoomed-in focus preview + Term Explanation Card (专业名词解析卡片) on the side panel
 - Synchronized Bilingual Subtitles (中英双语字幕) + Chapter Progress Bar at the bottom
-- Audio synthesis: supports local Lemonade/Kokoro or MOSS, Microsoft Edge
-  Neural TTS, and Azure Speech SSML for per-turn style and prosody controls.
+- Audio synthesis: supports on-device Kokoro v1.1-zh + Misaki for Mandarin,
+  local Lemonade/MOSS, Microsoft Edge Neural TTS, and Azure Speech SSML.
 - Explicit safety fallback: cadence-only audio is available for visual previews,
   while --require-tts rejects every fallback or provider mismatch.
 - Optional --export-gif flag to export an animated GIF preview for GitHub READMEs.
@@ -52,8 +52,22 @@ FONT_BOLD_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
 
-VOICE_BACKENDS = {"edge-tts", "azure-speech", "lemonade-local"}
+VOICE_BACKENDS = {"edge-tts", "azure-speech", "kokoro-zh-local", "lemonade-local"}
 NATIVE_EMPHASIS_VOICES = {"en-US-GuyNeural", "en-US-DavisNeural", "en-US-JaneNeural"}
+
+KOKORO_ZH_MODEL = "kokoro-v1.1-zh"
+KOKORO_ZH_DEFAULT_DIR = os.path.join(os.path.expanduser("~"), ".cache", "paper-ear", "kokoro-zh-v1.1")
+KOKORO_ZH_FILES = {
+    "model": "kokoro-v1.1-zh.onnx",
+    "voices": "voices-v1.1-zh.bin",
+    "config": "config.json",
+}
+KOKORO_ZH_VOICES = {
+    "female": ("zf_001", "zf_018", "zf_046", "zf_090"),
+    "male": ("zm_010", "zm_033", "zm_066", "zm_098"),
+}
+KOKORO_ZH_DEFAULT_VOICES = {"female": "zf_090", "male": "zm_033"}
+_KOKORO_ZH_RUNTIMES = {}
 
 LEMONADE_DEFAULT_BASE_URL = "http://127.0.0.1:13305/api/v1"
 LEMONADE_KOKORO_MODEL = "kokoro-v1"
@@ -274,18 +288,24 @@ def resolve_voice_profile(data, speaker):
     """Resolve the selected voice while retaining the legacy male/female fields."""
     speaker = "male" if str(speaker).lower() == "male" else "female"
     backend = str(data.get("voice_backend") or "edge-tts").lower()
-    if backend == "lemonade-local":
+    if backend == "kokoro-zh-local":
+        default_voice = KOKORO_ZH_DEFAULT_VOICES[speaker]
+        default_model = KOKORO_ZH_MODEL
+        default_styles = LOCAL_STYLE_BY_EMOTION[speaker]
+    elif backend == "lemonade-local":
         default_voice = "zm_yunjian" if speaker == "male" else "zf_xiaobei"
+        default_model = LEMONADE_KOKORO_MODEL
         default_styles = LOCAL_STYLE_BY_EMOTION[speaker]
     else:
         default_voice = "zh-CN-YunjianNeural" if speaker == "male" else "zh-CN-XiaoxiaoNeural"
+        default_model = LEMONADE_KOKORO_MODEL
         default_styles = DEFAULT_STYLE_BY_EMOTION[speaker]
     legacy_voice = data.get(f"{speaker}_voice", default_voice)
     profiles = data.get("voice_profiles") or {}
     profile = profiles.get(speaker) if isinstance(profiles, dict) else None
     profile = dict(profile) if isinstance(profile, dict) else {}
     profile["voice"] = profile.get("voice") or legacy_voice
-    profile.setdefault("model", data.get("voice_model") or LEMONADE_KOKORO_MODEL)
+    profile.setdefault("model", data.get("voice_model") or default_model)
     profile.setdefault("default_style", default_styles["neutral"])
     profile.setdefault("styles_by_emotion", default_styles)
     profile.setdefault("rate", "+0%")
@@ -433,6 +453,93 @@ def _rate_to_speed(rate):
     return max(0.5, min(2.0, speed))
 
 
+def resolve_kokoro_zh_paths(voice_profile=None):
+    """Resolve the dedicated Mandarin model files without making a network call."""
+    profile = voice_profile if isinstance(voice_profile, dict) else {}
+    model_dir = (
+        os.environ.get("PAPER_EAR_KOKORO_ZH_DIR")
+        or profile.get("model_dir")
+        or KOKORO_ZH_DEFAULT_DIR
+    )
+    model_dir = os.path.abspath(os.path.expanduser(str(model_dir)))
+    paths = {
+        key: os.path.abspath(
+            os.path.expanduser(str(profile.get(f"{key}_path") or os.path.join(model_dir, filename)))
+        )
+        for key, filename in KOKORO_ZH_FILES.items()
+    }
+    missing = [path for path in paths.values() if not os.path.isfile(path)]
+    if missing:
+        raise RuntimeError(
+            "Dedicated Mandarin model files are missing. Run "
+            "'python scripts/setup_mandarin_voice.py' first. Missing: " + ", ".join(missing)
+        )
+    return paths
+
+
+def _load_kokoro_zh_runtime(voice_profile=None):
+    """Load and cache Kokoro v1.1-zh with Misaki's tone-aware Chinese frontend."""
+    paths = resolve_kokoro_zh_paths(voice_profile)
+    cache_key = tuple(paths[key] for key in ("model", "voices", "config"))
+    cached = _KOKORO_ZH_RUNTIMES.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        from kokoro_onnx import Kokoro
+        from misaki import zh
+        from misaki.espeak import EspeakG2P
+    except ImportError as exc:
+        raise RuntimeError(
+            "Mandarin dependencies are missing. Install requirements.txt, including "
+            "kokoro-onnx and misaki-fork[zh]."
+        ) from exc
+
+    english_g2p = EspeakG2P(language="en-us", version="1.1")
+    chinese_g2p = zh.ZHG2P(
+        version="1.1",
+        en_callable=lambda segment: english_g2p(segment)[0],
+    )
+    engine = Kokoro(
+        paths["model"],
+        paths["voices"],
+        vocab_config=paths["config"],
+    )
+    cached = (engine, chinese_g2p, set(engine.get_voices()))
+    _KOKORO_ZH_RUNTIMES[cache_key] = cached
+    return cached
+
+
+def try_kokoro_zh_tts(text, voice_profile, delivery, out_wav):
+    """Synthesize on-device Mandarin through Kokoro v1.1-zh + Misaki ZHG2P."""
+    engine, g2p, available_voices = _load_kokoro_zh_runtime(voice_profile)
+    voice = str(voice_profile.get("voice") or "").strip()
+    if voice not in available_voices:
+        raise RuntimeError(
+            f"Voice '{voice}' is not present in the dedicated Mandarin voice pack. "
+            f"Choose one of {sorted(KOKORO_ZH_VOICES['female'] + KOKORO_ZH_VOICES['male'])}."
+        )
+    phonemes, _ = g2p(text)
+    if not isinstance(phonemes, str) or not phonemes.strip() or phonemes.strip() == "❓":
+        raise RuntimeError("The Mandarin frontend could not produce usable phonemes for this narration.")
+    samples, sample_rate = engine.create(
+        phonemes,
+        voice=voice,
+        speed=_rate_to_speed(delivery.get("rate")),
+        is_phonemes=True,
+    )
+    import soundfile as sf
+
+    sf.write(out_wav, samples, sample_rate, subtype="PCM_16")
+    _pad_pcm_wav(out_wav, delivery.get("pause_before_ms"), delivery.get("pause_after_ms"))
+    return {
+        "model": KOKORO_ZH_MODEL,
+        "language": "zh-CN",
+        "g2p": "misaki-zh-1.1",
+        "endpoint_scope": "on-device",
+        "voice_design": False,
+    }
+
+
 def resolve_lemonade_base_url(voice_profile=None):
     profile = voice_profile if isinstance(voice_profile, dict) else {}
     base_url = (
@@ -475,6 +582,16 @@ def try_lemonade_tts(text, voice_profile, delivery, out_wav):
     """Synthesize locally through Lemonade; no paper artifact leaves the machine."""
     base_url = resolve_lemonade_base_url(voice_profile)
     payload = build_lemonade_request(text, voice_profile, delivery)
+    if (
+        payload["model"] == LEMONADE_KOKORO_MODEL
+        and str(payload.get("voice") or "").startswith(("zf_", "zm_"))
+        and os.environ.get("PAPER_EAR_ALLOW_LEGACY_KOKORO_ZH") != "1"
+    ):
+        raise RuntimeError(
+            "Legacy Kokoro v1.0 Mandarin is disabled because intelligibility was not reliable. "
+            "Use voice_backend='kokoro-zh-local' with kokoro-v1.1-zh. Set "
+            "PAPER_EAR_ALLOW_LEGACY_KOKORO_ZH=1 only for an explicitly labeled legacy comparison."
+        )
     headers = {"Content-Type": "application/json; charset=utf-8"}
     api_key = os.environ.get("LEMONADE_API_KEY")
     if api_key:
@@ -629,6 +746,8 @@ def synthesize_turn_audio(turn, voice_backend, voice_profile, out_wav):
             asyncio.run(try_edge_tts(spoken_text, voice, delivery, out_wav))
         elif voice_backend == "azure-speech":
             try_azure_speech(spoken_text, voice, delivery, out_wav)
+        elif voice_backend == "kokoro-zh-local":
+            metadata.update(try_kokoro_zh_tts(spoken_text, voice_profile, delivery, out_wav))
         elif voice_backend == "lemonade-local":
             metadata.update(try_lemonade_tts(spoken_text, voice_profile, delivery, out_wav))
         else:

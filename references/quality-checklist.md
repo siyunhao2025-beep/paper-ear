@@ -31,6 +31,9 @@ Use this checklist after strict dialogue validation and before delivering a fina
 ## Audio and timing
 
 - Require real TTS for a publishable video; `offline-cadence` is preview-only.
+- For offline Mandarin, confirm the report records `kokoro-zh-local`, `kokoro-v1.1-zh`, `language: zh-CN`, `g2p: misaki-zh-1.1`, and `endpoint_scope: on-device`.
+- Treat a valid WAV as a transport check only. A human listener must understand every word in the same-line audition and four-turn micro-scene before a full render.
+- Reject legacy Lemonade/Kokoro v1.0 Mandarin even when synthesis technically succeeds; it failed the intelligibility gate.
 - For `lemonade-local`, confirm the render report records the intended model, voice, and `endpoint_scope: loopback`; treat provider-style labels as script direction unless that model explicitly supports them.
 - Listen to technical terms, acronyms, symbols, and mixed Chinese-English phrases for pronunciation problems.
 - Confirm the final word of every turn is audible and the last turn is not truncated.
