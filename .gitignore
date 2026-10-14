@@ -4,6 +4,10 @@ __pycache__/
 venv/
 runs/
 *.tmp
+workflow_state.json
+voice_casting.json
+voice-menu/
+voice-audition/
 
 # Never commit user-supplied or local test papers.
 private-inputs/

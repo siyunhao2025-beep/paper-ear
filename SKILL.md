@@ -22,6 +22,7 @@ Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundle
 9. Do not claim complete visual coverage from parser output alone. Visually inspect every rendered page, account for each numbered figure, table, and substantive displayed equation, and record any intentional exclusion.
 10. For online TTS, send only the final narration string plus provider controls. Never send the PDF, page images, extracted full text, evidence crops, local paths, or run artifacts. Disclose this text-only boundary before the first online synthesis. For local TTS, require a loopback endpoint by default and keep model weights outside the repository.
 11. A two-speaker video must contain real evidence-driven interaction, not alternating exposition. Use `evidence-dialogue-v2` for standard/full videos and pass its deterministic interaction gate.
+12. Keep human choices in the chat. Never ask the user to run a command, edit JSON, or download a configuration file. For a video with unapproved voices, pause once at the local audition page; after the user replies with both voices, resume and finish every requested artifact and QA gate without routine confirmation stops.
 
 ## Choose the output mode
 
@@ -30,12 +31,21 @@ Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundle
 - Produce both only when the user requests both. Do not make the expensive video path a prerequisite for the web path.
 - If the request is ambiguous, infer the mode from the desired consumption pattern; ask only when the choice would materially change the deliverable.
 
+## Chat-first interaction and resume contract
+
+Use the conversation as the control surface. Ask at most one compact preference checkpoint for audience, focus, coverage, and language, and omit fields the user already answered. Apply documented defaults immediately when the user says “默认”. Do not send the user to a form, terminal, or JSON file.
+
+Persist each run in `<run_dir>/workflow_state.json` with `scripts/manage_run_state.py`. Read that file at the start of a continuation turn. For video, the only routine hard pause is `awaiting_voice_choice`: generate the local audition page, give the user its clickable `index.html`, and end the turn asking them to reply in chat with a pair such as `女声 D，男声 B`. When that reply arrives, resolve it into `voice_casting.json`, acknowledge it briefly, and immediately continue through script creation, internal preview QA, full rendering, verification, and delivery. Do not ask for separate storyboard or preview approval unless a material choice or genuine blocker requires it.
+
+Read [references/conversation-workflow.md](references/conversation-workflow.md) before starting or resuming an interactive run. It defines the state transitions, exact pause/resume behavior, and legitimate reasons to ask again.
+
 ## Run layout
 
 Use one run directory so the work is resumable and inspectable:
 
 ```text
 <run_dir>/
+├── workflow_state.json
 ├── paper_structure.json
 ├── pages/
 ├── visual_inventory.json
@@ -46,6 +56,8 @@ Use one run directory so the work is resumable and inspectable:
 ├── web_qa.json
 ├── dialogue_script.json
 ├── script_qa.json
+├── voice_casting.json
+├── voice-menu/
 ├── voice-audition/
 ├── interaction-preview.mp4
 ├── preview.mp4
@@ -211,14 +223,14 @@ For every candidate visual, record its page, label, normalized bounding box, and
 
 ### 3. Resolve audience, focus, and depth
 
-Use guided mode by default. Present one compact preference checkpoint containing:
+Use guided mode by default. Keep one compact preference checkpoint inside the chat containing:
 
 - **Audience:** novice, general technical, or expert.
 - **Focus:** the detected two to four contributions or a user-named section.
 - **Coverage:** concise overview, standard full-paper walkthrough, or deep method/experiment focus.
 - **Language:** Chinese narration with Chinese-English subtitles by default, or the user's requested language arrangement.
 
-Do not ask questions the user already answered. If the user says to use defaults, skip the checkpoint and proceed with general-technical, standard coverage, and Chinese narration plus bilingual subtitles.
+Do not ask questions the user already answered. If the user says to use defaults, skip the checkpoint and proceed with general-technical, standard coverage, and Chinese narration plus bilingual subtitles. Record the resolved choices in `workflow_state.json`; never ask the user to edit that file.
 
 ### 3A. Cast and audition the voices
 
@@ -232,7 +244,17 @@ python <SKILL_DIR>/scripts/render_local_voice_menu.py \
   --output-dir <run_dir>/voice-menu
 ```
 
-Read [references/voice-casting-and-dialogue.md](references/voice-casting-and-dialogue.md) before configuring voices. Show a compact casting menu only when the user has not already accepted a default. Before full rendering, synthesize one presenter line and one discussant line, then a four-turn 45–75 second micro-scene containing a claim, challenge, evidence answer, and concession/follow-up.
+Read [references/voice-casting-and-dialogue.md](references/voice-casting-and-dialogue.md) before configuring voices. Show the audition page only when the current run has no approved cast. The page must tell the user to return to the same chat and reply with both choices; it must not require a downloaded configuration. Set the workflow state to `awaiting_voice_choice`, provide the clickable local `index.html`, ask for `女声 D，男声 B` or full voice IDs, and end the turn. Do not render the full video before that reply.
+
+On the continuation turn, read the state first and resolve the reply with:
+
+```bash
+python <SKILL_DIR>/scripts/manage_run_state.py select-voices \
+  --state <run_dir>/workflow_state.json \
+  --reply "<user's exact reply>"
+```
+
+This writes `<run_dir>/voice_casting.json` and changes the state to `running`. Then synthesize one presenter line and one discussant line, followed by a four-turn 45–75 second micro-scene containing a claim, challenge, evidence answer, and concession/follow-up. These are internal quality gates after the user has chosen the cast; do not introduce another routine pause.
 
 Create a request-only audition plan when credentials are unavailable:
 
@@ -245,7 +267,7 @@ python <SKILL_DIR>/scripts/render_voice_auditions.py \
 
 For `kokoro-zh-local`, remove `--dry-run` after the three verified model files are ready in the local cache; no credential or server is required. For `lemonade-local`, remove it after the loopback server and requested non-legacy model are ready. For online providers, remove it only after the user accepts the provider/privacy boundary and the required credential environment variables are present. Never store credentials in project files.
 
-### 4. Confirm the dialogue storyboard
+### 4. Build and internally verify the dialogue storyboard
 
 Create a short storyboard table before rendering. Each row must show:
 
@@ -258,7 +280,7 @@ Create a short storyboard table before rendering. Each row must show:
 
 Use the presenter to explain the paper and the discussant to probe assumptions, mechanisms, baselines, ablations, and limitations. Avoid fake disagreement and filler banter. Keep one main teaching point per turn. In a 15–20 turn standard video, include at least six substantive questions, three follow-ups, two explicit disagreements, two discovery moments, one discussant concession, one presenter self-correction, one presenter-to-discussant question, and one unresolved research question. Link every question to an evidence answer within one or two turns.
 
-Ask for confirmation only when the user requested an interactive workflow or when changing the focus would materially alter the video. Otherwise continue with the approved/default plan.
+Do not stop merely to obtain storyboard confirmation. Continue with the chat-approved/default focus. Ask again only when competing interpretations would materially change the deliverable and the paper or prior user choices do not resolve them.
 
 ### 5. Write and validate the dialogue script
 
@@ -301,11 +323,11 @@ python <SKILL_DIR>/scripts/render_paper_video.py \
   --report-json <run_dir>/preview_render_report.json
 ```
 
-If the best micro-scene is not at the start of the full script, write a four-turn `interaction_preview.json` preserving the original evidence fields and render that file. Inspect every preview turn and listen for contrast, pauses, stress, natural interruption points, and whether the concession sounds earned. A preview using `offline-cadence` is visual timing only and cannot pass voice approval.
+If the best micro-scene is not at the start of the full script, write a four-turn `interaction_preview.json` preserving the original evidence fields and render that file. Inspect every preview turn and listen for contrast, pauses, stress, natural interruption points, and whether the concession sounds earned. A preview using `offline-cadence` is visual timing only and cannot pass voice approval. Repair failures internally and rerun the preview; ask the user only if a subjective tradeoff or new authority is required.
 
 ### 7. Render the publishable video
 
-After the preview passes, render the full video with real TTS required:
+After the internal preview passes, render the full video with real TTS required without adding a routine approval stop:
 
 ```bash
 python <SKILL_DIR>/scripts/render_paper_video.py \
@@ -352,6 +374,8 @@ Present the final MP4 and briefly state:
 - any remaining limitation, such as an unreadable source figure.
 
 Do not create PPTX, Markdown reports, social-media cuts, or additional deliverables unless the user requests them.
+
+Mark `workflow_state.json` complete only after every requested artifact passes its release gate. A combined web-and-video run is not complete when only one deliverable exists.
 
 ## Failure handling
 

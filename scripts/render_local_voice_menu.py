@@ -98,9 +98,10 @@ def write_selector(output_dir, manifest):
             if clip["speaker"] != speaker or clip["status"] != "rendered":
                 continue
             checked = " checked" if clip["voice"] == defaults[speaker] else ""
+            choice = clip["label"].split("·", 1)[0].strip().split()[-1]
             speaker_cards.append(
                 '<label class="voice-card">'
-                f'<input type="radio" name="{speaker}" value="{html.escape(clip["voice"])}"{checked}>'
+                f'<input type="radio" name="{speaker}" value="{html.escape(clip["voice"])}" data-choice="{html.escape(choice)}"{checked}>'
                 '<span class="voice-copy">'
                 f'<span class="voice-name">{html.escape(clip["label"])}</span>'
                 f'<span class="voice-id">{html.escape(clip["voice"])}</span>'
@@ -129,19 +130,19 @@ section{margin-top:34px;border-top:3px solid var(--ink);padding-top:10px}h2{font
 .voice-card{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;background:#fdfefe;padding:14px 14px 12px;border:1px solid var(--line);border-left:6px solid var(--line);cursor:pointer}
 .voice-card:hover{border-left-color:var(--cyan)}.voice-card:focus-within{outline:3px solid #255ff4;outline-offset:2px}.voice-card:has(input:checked){border-left-color:var(--signal);background:#fff4f1}.voice-card input{accent-color:var(--signal);width:18px;height:18px}.voice-name{font-weight:800}.voice-id{font:600 11px Consolas,monospace;color:#6d7b87}.duration{font-size:12px;color:#526575;font-variant-numeric:tabular-nums}audio{grid-column:1/-1;width:100%;height:38px}
 .voice-copy{display:grid;gap:4px}.traits{color:var(--cyan);font-weight:800;font-size:13px;letter-spacing:.02em}.measurement,.choice-note{font-size:12px;line-height:1.55;color:#435767}.measurement b,.choice-note b{color:var(--ink)}.choice-note.caution{color:#76594e}.duration{padding-top:2px;white-space:nowrap}
-.result{position:sticky;bottom:10px;margin-top:30px;padding:14px 16px;border:2px solid #fff;background:var(--ink);color:#fff;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;box-shadow:8px 8px 0 #6f8798}
-button{border:2px solid #fff;padding:10px 16px;background:var(--signal);color:#fff;font:800 15px "Microsoft YaHei",sans-serif;cursor:pointer}button:hover{background:#b92f25}button:focus-visible{outline:3px solid #55d6c2;outline-offset:3px}code{color:#9ce7dc;font-family:Bahnschrift,Consolas,monospace}@media(max-width:660px){body{padding:14px 10px 54px}header{padding:22px 18px 20px}header::after{display:none}.grid{grid-template-columns:1fr}.result{position:static;box-shadow:5px 5px 0 #6f8798}}
+.result{position:sticky;bottom:10px;margin-top:30px;padding:14px 16px;border:2px solid #fff;background:var(--ink);color:#fff;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;align-items:center;box-shadow:8px 8px 0 #6f8798}.result-copy{display:grid;gap:7px}.return-note{margin:0;color:#9ce7dc;font-size:13px;font-weight:700}.reply-row{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}.reply-row input{min-width:0;width:100%;border:2px solid #9ce7dc;background:#fff;color:var(--ink);padding:10px 12px;font:800 15px "Microsoft YaHei",sans-serif}
+button{border:2px solid #fff;padding:10px 16px;background:var(--signal);color:#fff;font:800 15px "Microsoft YaHei",sans-serif;cursor:pointer}button:hover{background:#b92f25}button:focus-visible{outline:3px solid #55d6c2;outline-offset:3px}code{color:#9ce7dc;font-family:Bahnschrift,Consolas,monospace}@media(max-width:660px){body{padding:14px 10px 54px}header{padding:22px 18px 20px}header::after{display:none}.grid{grid-template-columns:1fr}.result{position:static;display:grid;grid-template-columns:1fr;box-shadow:5px 5px 0 #6f8798}.reply-row{grid-template-columns:1fr}.reply-row button{width:100%}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 </style></head><body>
 <header><div class="badges"><span class="badge">普通话专用 v1.1</span><span class="badge">Misaki 中文发音器</span><span class="badge">本机离线</span><span class="badge alert">旧版试听已作废</span></div><h1>先听清每个字，再决定角色</h1><p>这 8 个候选全部改用中文专用 Kokoro v1.1-zh 模型和带声调的中文发音器，不再使用上一版发音含混的旧模型。每个声音说同一句标准普通话，播放器旁边直接写明特点、测量和适用角色。</p>
-<p class="note">验收规则：先确认每个字都能听懂，再判断音色是否喜欢。文件能播放、模型能运行，都不等于普通话已经合格；最终以你的耳朵为准。</p><p class="script"><b>统一台词：</b>__TEXT__</p></header>
+<p class="note">验收规则：先确认每个字都能听懂，再判断音色是否喜欢。文件能播放、模型能运行，都不等于普通话已经合格；最终以你的耳朵为准。</p><p class="script"><b>统一台词：</b>__TEXT__</p><p>这里不需要下载配置文件。试听并勾选后，复制页面底部那句话，回到原来的对话框发送即可；Paper-Ear 会从暂停处继续完成全部流程。</p></header>
 __CARDS__
-<div class="result"><div>当前选择：女声 <code id="female-choice"></code> · 男声 <code id="male-choice"></code></div><button id="download">下载已选普通话角色配置</button></div>
+<div class="result"><div class="result-copy"><div>当前选择：女声 <code id="female-choice"></code> · 男声 <code id="male-choice"></code></div><p class="return-note" id="copy-status" aria-live="polite">听完后，把下面这句话发回原来的对话框。</p></div><div aria-hidden="true">试听 → 选择 → 回到对话</div><div class="reply-row"><input id="reply-text" readonly aria-label="发回对话框的音色选择"><button id="copy" type="button">复制选择，回到对话框</button></div></div>
 <script>
-function selected(name){const el=document.querySelector('input[name="'+name+'"]:checked');return el?el.value:''}
-function refresh(){document.getElementById('female-choice').textContent=selected('female');document.getElementById('male-choice').textContent=selected('male')}
+function selectedElement(name){return document.querySelector('input[name="'+name+'"]:checked')}
+function refresh(){const female=selectedElement('female'),male=selectedElement('male');document.getElementById('female-choice').textContent=female.dataset.choice+'（'+female.value+'）';document.getElementById('male-choice').textContent=male.dataset.choice+'（'+male.value+'）';document.getElementById('reply-text').value='女声 '+female.dataset.choice+'（'+female.value+'），男声 '+male.dataset.choice+'（'+male.value+'）';document.getElementById('copy-status').textContent='听完后，把下面这句话发回原来的对话框。'}
 document.querySelectorAll('input[type=radio]').forEach(el=>el.addEventListener('change',refresh));refresh();
-document.getElementById('download').addEventListener('click',()=>{const female=selected('female'),male=selected('male');const data={voice_backend:'kokoro-zh-local',voice_model:'kokoro-v1.1-zh',language:'zh-CN',g2p:'misaki-zh-1.1',female_voice:female,male_voice:male,voice_profiles:{female:{model:'kokoro-v1.1-zh',voice:female},male:{model:'kokoro-v1.1-zh',voice:male}},user_listening_confirmation_required:true};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download='paper-ear-mandarin-cast.json';a.click();URL.revokeObjectURL(a.href)});
+document.getElementById('copy').addEventListener('click',async()=>{const field=document.getElementById('reply-text'),status=document.getElementById('copy-status');try{await navigator.clipboard.writeText(field.value);status.textContent='已复制。现在回到原来的对话框并粘贴发送，我会接着完成。'}catch(error){field.focus();field.select();status.textContent='已选中这句话，请按 Ctrl+C 复制，然后回到原来的对话框发送。'}});
 </script></body></html>"""
     page = template.replace("__TEXT__", html.escape(manifest["comparison_text"])).replace("__CARDS__", "".join(cards))
     selector_path = output_dir / "index.html"
@@ -184,6 +185,13 @@ def main():
         "quality_note": (
             "All clips use the dedicated v1.1 Chinese model and tone-aware Misaki ZHG2P. "
             "Technical generation success is not user listening approval; confirm intelligibility before a full render."
+        ),
+        "interaction_mode": "chat-first-resumable",
+        "chat_reply_format": "女声 D（zf_090），男声 B（zm_033）",
+        "default_chat_reply": "女声 D（zf_090），男声 B（zm_033）",
+        "pause_contract": (
+            "Listen locally, return to the same chat, and send both choices. "
+            "No configuration download or user-run command is required."
         ),
         "clips": [],
     }

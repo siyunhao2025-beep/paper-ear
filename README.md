@@ -90,7 +90,7 @@
 
 ## 🔄 多轮交互式工作流全解 (Interactive Workflow)
 
-**Paper-Ear** 拒绝“丢进 PDF 直接盲目生成”。它通过结构化的**多轮交互（Multi-Turn Interaction）**，先与你对齐解读方向，再合成最终视频：
+**Paper-Ear** 拒绝“丢进 PDF 直接盲目生成”，也不把用户赶去终端或 JSON 配置页。它把人工选择集中在原对话框里：先用一轮紧凑问题对齐解读方向；需要视频时，只在普通话音色试听处暂停一次；用户听完回到同一对话框发送男女声选择后，Skill 会从暂停点继续完成网页、剧本、内部预览、正式视频和最终验收。
 
 <div align="center">
   <img src="./assets/workflow_diagram.png" alt="Paper-Ear Multi-Turn Workflow" width="96%" />
@@ -100,11 +100,11 @@
 
 ```text
 👤 用户：
-[上传论文 Sparse_Ear_NeurIPS2026.pdf] 用 paper-ear 帮我解读这篇论文。
+[上传论文 Sparse_Ear_NeurIPS2026.pdf] 用 paper-ear 帮我把这篇论文做成速读网页 + 双人组会视频。
 
-🤖 Paper-Ear (第 1 轮交互 —— 解析论文并弹出定制菜单)：
+🤖 Paper-Ear（第 1 轮 —— 在对话框内完成偏好选择）：
 我已经解析完这篇论文（共 2 页，包含 3 个核心章节、2 组核心公式、1 幅双分支架构图 Figure 1 和 1 张对比表 Table 1）。
-在生成组会视频前，请先确认你的定制偏好：
+请直接在这里告诉我：
 1. 【选择创新点】：本文检测到 3 个核心创新点：
    - (A) Differentiable Sparse Routing (DSR 动态可微稀疏路由)
    - (B) Soft-Gumbel Capacity Gate (软 Gumbel 容量门控)
@@ -116,21 +116,21 @@
 👤 用户：
 创新点重点讲 A 和 B；专业名词用跨领域通俗模式把 Soft-Gumbel 和 Hard Top-K 的区别讲透；内容覆盖全篇重点图表。
 
-🤖 Paper-Ear (第 2 轮交互 —— 确认男女对话剧本与红框坐标映射)：
-收到！我为你拟定了共 5 轮的「女声主讲人 Lin + 男声师兄 Alex」组会问答大纲及每轮对应的 PDF 红框位置：
-- Turn 1 [Page 1 红框框选 Abstract]：女声介绍长文本 O(N²) 痛点与整体思路
-- Turn 2 [Page 1 红框框选 Section 1 创新点列表]：男声追问专业名词 Soft-Gumbel 与 Hard Top-K 的本质区别
-- Turn 3 [Page 1 红框框选 Eq.(1)-(2)]：女声结合公式拆解温度系数 tau 如何避免梯度截断
-- Turn 4 [Page 2 红框框选 Figure 1 架构图]：女声配合右侧放大图讲解 Heavy/Light 双分支分流过程
-- Turn 5 [Page 2 红框框选 Table 1 实验表]：男声总结 58% 显存节省与 3.4x 推理加速结果
-确认无误的话我立即为你渲染输出 1080p MP4 视频！
+🤖 Paper-Ear（第 2 轮 —— 唯一一次常规暂停：试听音色）：
+普通话音色试听页已经准备好：[打开本地试听页]。
+请分别试听女声和男声；听完仍回到这个对话框，直接回复“女声 D，男声 B”（也可以写完整音色 ID）。无需下载配置，也无需运行命令。我会从这里继续跑完网页与视频全过程。
 
 👤 用户：
-确认，直接生成 MP4！
+女声 D，男声 B。
 
-🤖 Paper-Ear (第 3 步 —— 渲染直出 1080p MP4 视频)：
-🎬 已为你生成并输出组会精读视频：`paper_ear_demo.mp4`
+🤖 Paper-Ear（自动续跑，不再为常规步骤停下来）：
+已采用女声 D（zf_090）与男声 B（zm_033）。我会继续完成证据剧本、四轮互动预览检查、正式 1080p 视频、离线证据网页和最终 QA。
+
+🤖 Paper-Ear（最终交付）：
+已完成：`site/index.html` + `paper_ear_demo.mp4`。图、表、公式均保留原始页面证据与定位；严格校验和浏览器/音视频检查均已通过。
 ```
+
+这个暂停点会写入私有运行目录中的 `workflow_state.json`。即使中间隔了一轮对话，Skill 也会先读取状态再续跑；该文件可能包含本地 PDF 路径，因此不会进入公开仓库或交付包。
 
 ## 🚀 快速安装与使用指南 (Quick Start)
 
@@ -159,6 +159,8 @@ pip install -r requirements.txt
 - `paper-ear 解读这篇 PDF，重点讲第 3 节的方法架构图和公式`
 - `用 paper-ear 把这篇论文做成可快速浏览的离线网页，保留全部图表公式`
 - `我只有 3 分钟，生成一个能搜索、能回到原页的论文阅读器`
+
+所有偏好直接在聊天中回答。视频音色试听时，打开 Skill 给出的本地链接，听完回到原对话框发送例如 `女声 D，男声 B`；此后 Paper-Ear 会自动续跑，不要求你下载配置文件或逐步确认内部剧本与预览。
 
 ### 3. 命令行：网页模式
 
@@ -267,6 +269,8 @@ python scripts/setup_mandarin_voice.py
 python scripts/render_local_voice_menu.py `
   --output-dir .\voice-menu
 ```
+
+打开 `voice-menu/index.html`，试听并勾选后，页面会生成一句可复制的聊天回复，例如 `女声 D（zf_090），男声 B（zm_033）`。把它发回原来的对话框即可；**不需要下载配置文件，也不需要自己执行后续命令**。Skill 会记录选择并自动继续剧本、互动预览、正式渲染和验收。
 
 | 角色 | 已实测本地音色 | 默认 |
 | :--- | :--- | :--- |
@@ -384,6 +388,7 @@ paper-ear/
 │   ├── web_reader_preview.png       # 交互式证据阅读器桌面预览图
 │   └── web-reader/                  # 完全本地的 HTML/CSS/JS 阅读器模板
 ├── references/
+│   ├── conversation-workflow.md     # 对话内选择、语音暂停与跨回合续跑状态契约
 │   ├── dialogue-schema.md           # 带证据锚点与声明类型的完整剧本规范
 │   ├── voice-casting-and-dialogue.md # 声线选角、Azure 隐私边界、试听与互动提示词
 │   ├── quality-checklist.md         # 内容、视觉、音频与媒体发布检查表
@@ -392,6 +397,7 @@ paper-ear/
 │   ├── web-design-provenance.md     # 高星项目调研来源与设计取舍
 │   └── local-voice-provenance.md    # 本地 TTS 调研、许可证、硬件与质量边界
 ├── scripts/
+│   ├── manage_run_state.py          # 记录聊天偏好、语音暂停点与自动续跑状态
 │   ├── inspect_paper.py             # PDF 页面尺寸、文本块/图表归一化坐标提取工具
 │   ├── build_visual_inventory.py    # 图/表/公式候选盘点（输出必须逐页复核）
 │   ├── validate_web_brief.py        # 网页证据、页码、裁图与完整性严格校验器
@@ -406,7 +412,7 @@ paper-ear/
     ├── sample_paper.pdf             # 示例双页学术论文 PDF（含公式、架构图与消融实验表）
     ├── sample_dialogue.json         # 示例 5 轮男女组会对话与红框坐标配置
     ├── sample_voice_casting.json    # Azure 选角、情绪映射与试听台词
-    ├── sample_local_voice_casting.json # Lemonade/Kokoro 本地选角与试听台词
+    ├── sample_local_voice_casting.json # Kokoro 中文本地选角与试听台词
     ├── sample_web_brief.json        # 示例网页证据地图与完整视觉清单
     ├── web-reader-demo/             # 可直接打开的离线网页成品
     └── paper_ear_demo.mp4           # 实际渲染生成的 1080p 组会讲解示例视频

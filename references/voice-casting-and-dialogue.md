@@ -21,7 +21,7 @@ Official references:
 | Presenter | `zf_090` | punctuation + concise clauses + evidence pivots | Balanced female candidate from the dedicated Chinese voice pack; no account or key required. |
 | Discussant | `zm_033` | short challenges + deliberate pauses + follow-ups | Lower, stronger male candidate with clear acoustic contrast. |
 
-These are starting points, not objective winners. Run `render_local_voice_menu.py` and let the user compare all eight candidates. The menu's measurements do not replace a listening decision: a voice is approved only after the user can understand every word. The dedicated Chinese path is not a human-level emotional acting engine. See [local-voice-provenance.md](local-voice-provenance.md).
+These are starting points, not objective winners. Run `render_local_voice_menu.py` and let the user compare all eight candidates. The menu's measurements do not replace a listening decision: a voice is approved only after the user can understand every word. The user should return to the same chat and reply with both A–D labels or full voice IDs; do not ask them to download or edit a configuration file. The dedicated Chinese path is not a human-level emotional acting engine. See [local-voice-provenance.md](local-voice-provenance.md).
 
 ## Azure expressive cast
 
@@ -103,6 +103,8 @@ Use the voice profile in `examples/sample_voice_casting.json` as the default. Pe
 
 ## Audition before rendering
 
+The voice menu is the single routine human pause. Give the user its clickable local `index.html`, then stop while the workflow state is `awaiting_voice_choice`. Accept a natural chat reply such as `女声 D，男声 B` or `女声 zf_090，男声 zm_033`. Once both voices are recorded, continue through the casting clips, interaction preview, full render, and final QA without asking the user to operate scripts or approve each internal checkpoint.
+
 First create a request-only plan. This writes SSML and a manifest but makes no network call:
 
 ```bash
@@ -129,7 +131,7 @@ For a paper-specific micro-scene, mark four turns with `"audition": true` or pas
 3. Presenter answers with a page/figure/number and narrows the claim if needed.
 4. Discussant concedes what the evidence supports, then asks the next question.
 
-Do not render the full video until both the casting clips and the four-turn interaction preview are approved.
+Do not render the full video until both the casting clips and the four-turn interaction preview pass internal listening and visual QA. Ask the user again only when a failed gate presents a subjective tradeoff that cannot be resolved from their earlier choices.
 
 ## Evidence-dialogue writing contract
 
