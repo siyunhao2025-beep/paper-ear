@@ -7,15 +7,34 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 | Field | Required | Meaning |
 |---|---:|---|
 | `title` | yes | Exact paper title or a faithful shortened title. |
+| `source_document` | yes for `bubu-yier-v1` | Immutable binding to the current PDF. Use an object with `filename`, lowercase `sha256`, and integer `page_count`. The branded renderer rejects a missing or mismatched hash/page count before TTS or video work begins. |
+| `pdf_sha256` | legacy optional alias | Top-level SHA-256 alias for non-branded legacy scripts. New scripts should use `source_document.sha256`. If both are present, they must agree. |
+| `brand_profile` | branded theme only | Set to `bubu-yier-v1` to require the fixed 一二/布布 cast, mandatory three-turn opening, and per-turn character layer. |
 | `male_name` | yes in strict mode | Display name and role for the discussant. |
 | `female_name` | yes in strict mode | Display name and role for the presenter. |
 | `male_voice` | one voice source required | Backward-compatible male voice name; `voice_profiles.male.voice` may replace it. |
 | `female_voice` | one voice source required | Backward-compatible female voice name; `voice_profiles.female.voice` may replace it. |
-| `voice_backend` | no | `kokoro-zh-local` (recommended offline Mandarin), `edge-tts`, `azure-speech`, or `lemonade-local`. |
+| `voice_backend` | no | `kokoro-zh-local` (recommended generic offline Mandarin), `bubu-yier-local` (F5-TTS character cast), `edge-tts`, `azure-speech`, or `lemonade-local`. |
 | `voice_model` | recommended for local | Local model shared by both roles; use `kokoro-v1.1-zh` with `kokoro-zh-local`. A profile-level model overrides it. |
 | `voice_profiles` | recommended | Female/male voice, optional local model/voice-design description, default style, emotion-to-style map, and baseline prosody. |
 | `interaction_mode` | no | Set to `evidence-dialogue-v2` to enforce real question/answer dynamics. |
 | `turns` | yes | Ordered, non-empty array of dialogue turns. |
+
+## Current-PDF binding (mandatory for the branded profile)
+
+Every `bubu-yier-v1` script must be generated from, and bound to, the PDF supplied in the current run:
+
+```json
+{
+  "source_document": {
+    "filename": "uploaded-paper.pdf",
+    "sha256": "64-lowercase-hex-characters",
+    "page_count": 14
+  }
+}
+```
+
+The validator and renderer recompute the hash and page count from `--pdf`. A mismatch is a hard failure; it is never repaired by substituting the repository demo or by reusing `examples/sample_dialogue.json`. The render report records the canonical paths, raw-byte PDF/script hashes, and a second `script_content_sha256` computed from UTF-8 dialogue text after normalizing CRLF and lone CR to LF. Its explicit `input_hash_contract` lets a fresh Windows checkout survive LF↔CRLF conversion without weakening content checks. The media gate rehashes the current PDF and normalized script; any non-line-ending script change, or any PDF byte change, fails. A branded turn whose `page` is outside the current PDF is also a hard failure and is never silently clamped to another page.
 
 ## Turn fields
 
@@ -43,6 +62,8 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 | `delivery` | yes in v2 | Style/prosody/pause/emphasis object described below. |
 | `question_target` | for questions | Concrete assumption, result, baseline, or limitation being tested. |
 | `interaction_tags` | yes in v2 | Machine-readable quality tags such as `question`, `disagreement`, or `concession`. |
+| `character_pose` | no | Exact pose ID from `assets/characters/manifest.json`. It overrides automatic semantic selection and must belong to the active speaker. |
+| `character_caption` | no | Optional non-evidentiary bubble text replacing the pose's default short line; it is not narration and must not introduce a paper claim. |
 
 `source_anchor.kind` / `evidence_anchor.kind` must be one of `section`, `figure`, `table`, `equation`, `appendix`, or `page`. Its `page` must match the turn's `page`. Use the paper's printed label when available, such as `Figure 2`, `Table 1`, `Eq. (4)`, or `Section 3.2`.
 
@@ -65,6 +86,10 @@ Use this contract for `dialogue_script.json`. The renderer ignores unknown field
 
 For `kokoro-zh-local`, use model `kokoro-v1.1-zh`; the curated menu contains female voices `zf_001`, `zf_018`, `zf_046`, `zf_090` and male voices `zm_010`, `zm_033`, `zm_066`, `zm_098`. It uses Misaki 1.1 Chinese G2P and runs entirely on-device. Kokoro honors speed but does not implement Azure speaking styles; `provider_style`, pitch, volume, and emphasis remain semantic direction or report metadata rather than guaranteed acoustic controls. Legacy `lemonade-local` + `kokoro-v1` Mandarin is disabled because it failed intelligibility testing. Optional Lemonade MOSS models may accept `voice_design_description`, but require a much larger local download.
 
+For `bubu-yier-local`, use model `F5TTS_v1_Base`; the default cast is female presenter `yier` and male discussant `bubu`. The F5-TTS adapter honors rate as synthesis speed and applies the configured before/after pauses after synthesis. `provider_style`, pitch, volume, emotion, and emphasis remain script/report guidance rather than guaranteed F5-TTS controls. Reference clips and weights stay in external caches. See [bubu-yier-local-backend.md](bubu-yier-local-backend.md) for pinned hashes, setup, model-license limits, and external path configuration.
+
+When `brand_profile` is `bubu-yier-v1`, the renderer injects three fixed opening turns before this schema's evidence-bearing `turns`: 一二 says “啊哒哒～啊哒哒哒哒～！谢谢大家对我们的喜欢！”, 布布 says “感谢「小司在加油」做了这个 Skill——让我们，相遇在科研视频中。”, and 一二 closes with “好啦，开始讲论文吧！”. Do not duplicate them in `turns`; `--max-turns` limits only the paper turns. See [character-expression-system.md](character-expression-system.md) for the 20+20 pose contract and automatic-selection rules.
+
 Allowed `interaction_tags` are `question`, `disagreement`, `surprise`, `concession`, `self_correction`, `reverse_question`, and `unresolved`. Use only tags that describe an actual conversational event.
 
 Read [voice-casting-and-dialogue.md](voice-casting-and-dialogue.md) for casting options, the Azure privacy boundary, audition commands, and the v2 interaction-quality gate.
@@ -83,15 +108,24 @@ Keep `inference` and `critique` phrasing visibly separate from the authors' resu
 ```json
 {
   "title": "Example Paper",
-  "male_name": "师兄 Alex (提问/思辨)",
-  "female_name": "主讲人 Lin (精读讲解)",
-  "male_voice": "zh-CN-YunxiNeural",
-  "female_voice": "zh-CN-XiaoxiaoNeural",
+  "source_document": {
+    "filename": "uploaded-paper.pdf",
+    "sha256": "replace-with-the-current-pdf-sha256",
+    "page_count": 12
+  },
+  "brand_profile": "bubu-yier-v1",
+  "voice_backend": "bubu-yier-local",
+  "voice_model": "F5TTS_v1_Base",
+  "male_name": "布布（追问）",
+  "female_name": "一二（主讲）",
+  "male_voice": "bubu",
+  "female_voice": "yier",
   "turns": [
     {
       "page": 3,
       "section_tag": "Page 3 • Method",
       "speaker": "female",
+      "character_pose": "yier_evidence_point",
       "zh_text": "先看 Figure 2：输入经过编码器后，被分到重计算与轻计算两条路径。",
       "en_text": "Figure 2 routes the encoded input through heavy and light computation paths.",
       "search_text": "Figure 2",

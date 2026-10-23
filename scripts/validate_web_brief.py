@@ -7,11 +7,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from document_binding import collect_input_identity, validate_document_binding
+
 
 CLAIM_TYPES = {"paper_evidence", "author_claim", "inference", "critique"}
 ANCHOR_KINDS = {"section", "figure", "table", "equation", "appendix", "page"}
 VISUAL_KINDS = {"figure", "table", "equation"}
 EVIDENCE_STRENGTHS = {"strong", "moderate", "tentative"}
+BRAND_PROFILE = "bubu-yier-v1"
 
 
 def nonempty(value):
@@ -79,6 +82,10 @@ def validate_data(data, page_count, strict=False):
 
     if data.get("schema_version") != 1:
         issue(errors, "schema_version", "schema_version must be 1.")
+
+    brand_profile = data.get("brand_profile")
+    if brand_profile not in (None, "", BRAND_PROFILE):
+        issue(errors, "unsupported_brand_profile", f"Unsupported brand_profile: {brand_profile}.")
 
     paper = data.get("paper")
     if not isinstance(paper, dict):
@@ -273,6 +280,7 @@ def validate_data(data, page_count, strict=False):
 
     stats = {
         "pages": page_count,
+        "brand_profile": brand_profile or None,
         "claims": len(claims) if isinstance(claims, list) else 0,
         "sections": len(sections) if isinstance(sections, list) else 0,
         "visuals": len(visuals),
@@ -280,6 +288,24 @@ def validate_data(data, page_count, strict=False):
         "excluded_visuals": len(excluded),
     }
     return errors, warnings, stats
+
+
+def validate_web_source_binding(data, pdf_path, brief_path, page_count):
+    identity = collect_input_identity(pdf_path, brief_path, page_count)
+    result = validate_document_binding(
+        data,
+        identity,
+        brief_path,
+        require_source_document=data.get("brand_profile") == BRAND_PROFILE,
+        artifact_label="web brief",
+    )
+    return result, {
+        "source_document": identity["source_document"],
+        "pdf_sha256": identity["pdf_sha256"],
+        "pdf_pages": identity["pdf_pages"],
+        "web_brief": identity["dialogue_script"],
+        "brief_sha256": identity["script_sha256"],
+    }
 
 
 def main():
@@ -311,16 +337,23 @@ def main():
             issue(errors, "invalid_json", f"Could not read brief as UTF-8 JSON: {exc}")
 
     stats = {"pages": page_count, "claims": 0, "sections": 0, "visuals": 0}
+    source_binding = {"declared": False, "required": False, "verified": False, "issues": []}
+    identity = {}
     if data and not errors:
         found_errors, found_warnings, stats = validate_data(data, page_count, strict=args.strict)
         errors.extend(found_errors)
         warnings.extend(found_warnings)
+        source_binding, identity = validate_web_source_binding(data, pdf_path, brief_path, page_count)
+        errors.extend(source_binding["issues"])
+        stats["source_binding_verified"] = bool(source_binding["verified"])
 
     report = {
         "ok": not errors,
         "strict": bool(args.strict),
         "pdf": str(pdf_path),
         "brief": str(brief_path),
+        "identity": identity,
+        "source_binding": source_binding,
         "stats": stats,
         "errors": errors,
         "warnings": warnings,

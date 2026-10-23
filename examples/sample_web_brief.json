@@ -1,5 +1,11 @@
 {
   "schema_version": 1,
+  "brand_profile": "bubu-yier-v1",
+  "source_document": {
+    "filename": "sample_paper.pdf",
+    "sha256": "d4e308c97e5e127a758b1e75e3da9da1373a55dd2fb632cdbdde82487804c687",
+    "page_count": 2
+  },
   "paper": {
     "title": "Sparse-Ear: Dynamic Token Routing for Efficient Long-Context Multimodal Reasoning",
     "authors": [

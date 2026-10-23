@@ -52,6 +52,7 @@ Dialect voices can be offered as an optional creative choice, but do not make th
 | Provider | Use when | Limitation |
 |---|---|---|
 | `kokoro-zh-local` + `kokoro-v1.1-zh` | The user wants free, offline, account-free Mandarin and several male/female candidates. | Fixed voices and speed control; no true emotion-style control; requires a one-time ~379 MB model download. |
+| `bubu-yier-local` + `F5TTS_v1_Base` | The user has approved the 一二/布布 character cast and accepts an on-device F5-TTS setup. | Uses external reference clips and a substantially larger non-commercial model; rate and punctuation drive delivery, while style labels are not acoustic controls. |
 | `lemonade-local` + `MOSS-TTS-Local` or `OpenMOSS-TTS` | The user accepts a much larger local download for stronger expressiveness or voice design on supported hardware. | Roughly 8.5-12.5 GB in the tested catalog, with additional voice-design weights possible; benchmark before promising speed. |
 | `azure-speech` | The user wants emotions, speaking styles, pauses, emphasis, and consistent casting. | Requires an Azure Speech key/region and sends final narration text to Azure. |
 | `edge-tts` | The user wants a quick, no-key neural narration preview. | Supports voice/rate/volume/pitch but not custom expressive SSML styles. |
@@ -59,7 +60,7 @@ Dialect voices can be offered as an optional creative choice, but do not make th
 
 ## Privacy boundary
 
-`kokoro-zh-local` runs in the current process and uploads nothing. A local Lemonade request may contain only the final narration string plus voice controls and must use a loopback endpoint by default. An online TTS request may contain only the final narration string plus SSML controls. Never send the PDF, page images, extracted full text, tables, figures, equations, citations, run directory, or local file paths. `render_voice_auditions.py` and `render_local_voice_menu.py` do not open the source PDF. `render_paper_video.py` reads the PDF locally for frames while exposing only each turn's final `spoken_text` (or subtitle fallback) to the selected speech backend.
+`kokoro-zh-local` and `bubu-yier-local` run in the current process and upload nothing. A local Lemonade request may contain only the final narration string plus voice controls and must use a loopback endpoint by default. An online TTS request may contain only the final narration string plus SSML controls. Never send the PDF, page images, extracted full text, tables, figures, equations, citations, run directory, or local file paths. `render_voice_auditions.py` and `render_local_voice_menu.py` do not open the source PDF. `render_paper_video.py` reads the PDF locally for frames while exposing only each turn's final `spoken_text` (or subtitle fallback) to the selected speech backend. See [bubu-yier-local-backend.md](bubu-yier-local-backend.md) before enabling the character cast.
 
 ## Configure free local speech
 
@@ -156,6 +157,8 @@ Presenter: explains the paper, answers with exact page/figure/table/number ancho
 Discussant: asks substantive questions about identification, measurement geometry, baselines, controls, alternative explanations, and generalizability. The discussant may disagree, but must concede when the evidence answers the objection.
 
 Use a challenge → evidence answer → follow-up → concession/synthesis rhythm. Every question must be answered within one or two turns. Keep evidence, author interpretation, explainer inference, and critique visibly separate. Never invent a number, mechanism, or causal claim. If the paper cannot answer, label the point unresolved.
+
+For `bubu-yier-v1`, keep the relationship natural and sparse rather than adding a nickname to every turn. 布布 may address 一二 as **一二宝**. 一二 normally says **布布**, may use **臭布布** once for a playful reaction to a sharp question, and may use **香布布** once after a useful correction or well-grounded synthesis. Never reverse these forms. In a complete 15–20-turn dialogue, include at least one correct address in each direction; keep each special nickname to at most one context-appropriate occurrence. Do not insert a nickname inside a formula, number, quotation, evidence label, or the fixed opening.
 
 For each turn return: speaker, dialogue_act, responds_to_turn, emotion, emotion_intensity, delivery, question_target, interaction_tags, page, evidence_anchor, claim_type, Chinese spoken/subtitle text, English subtitle, red-box target, and concise notes.
 

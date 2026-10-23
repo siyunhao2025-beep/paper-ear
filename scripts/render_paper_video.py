@@ -7,7 +7,8 @@ Features:
 - Zoomed-in focus preview + Term Explanation Card (专业名词解析卡片) on the side panel
 - Synchronized Bilingual Subtitles (中英双语字幕) + Chapter Progress Bar at the bottom
 - Audio synthesis: supports on-device Kokoro v1.1-zh + Misaki for Mandarin,
-  local Lemonade/MOSS, Microsoft Edge Neural TTS, and Azure Speech SSML.
+  the optional Bubu/Yier F5-TTS cast, local Lemonade/MOSS, Microsoft Edge
+  Neural TTS, and Azure Speech SSML.
 - Explicit safety fallback: cadence-only audio is available for visual previews,
   while --require-tts rejects every fallback or provider mismatch.
 - Optional --export-gif flag to export an animated GIF preview for GitHub READMEs.
@@ -26,10 +27,36 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import wave
+from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 import numpy as np
 import pdfplumber
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+
+from bubu_yier_voice import (
+    BUBU_YIER_BACKEND,
+    BUBU_YIER_DEFAULT_VOICES,
+    BUBU_YIER_MODEL,
+    BUBU_YIER_REFERENCE_SPECS,
+    resolve_f5_options,
+    resolve_reference,
+    synthesize_bubu_yier,
+)
+from character_library import CharacterLibrary
+from document_binding import RAW_BYTES_HASH_MODE, collect_input_identity, enforce_document_binding, sha256_file
+
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BUBU_YIER_BRAND_PROFILE = "bubu-yier-v1"
+BUBU_YIER_INTRO_BACKGROUND = os.path.join(REPO_ROOT, "assets", "bubu_yier_intro_bg.png")
+FINAL_AUDIO_GAIN_DB = -1.5
+FINAL_AUDIO_LIMITER_CEILING = 0.89
+FINAL_AUDIO_BITRATE = "128k"
+FINAL_AUDIO_FILTER = (
+    f"volume={FINAL_AUDIO_GAIN_DB}dB,"
+    f"alimiter=limit={FINAL_AUDIO_LIMITER_CEILING}:level=false"
+)
+_CHARACTER_IMAGE_CACHE = {}
 
 
 FONT_REGULAR_CANDIDATES = [
@@ -52,7 +79,13 @@ FONT_BOLD_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
 
-VOICE_BACKENDS = {"edge-tts", "azure-speech", "kokoro-zh-local", "lemonade-local"}
+VOICE_BACKENDS = {
+    "edge-tts",
+    "azure-speech",
+    "kokoro-zh-local",
+    "lemonade-local",
+    BUBU_YIER_BACKEND,
+}
 NATIVE_EMPHASIS_VOICES = {"en-US-GuyNeural", "en-US-DavisNeural", "en-US-JaneNeural"}
 
 KOKORO_ZH_MODEL = "kokoro-v1.1-zh"
@@ -288,9 +321,19 @@ def resolve_voice_profile(data, speaker):
     """Resolve the selected voice while retaining the legacy male/female fields."""
     speaker = "male" if str(speaker).lower() == "male" else "female"
     backend = str(data.get("voice_backend") or "edge-tts").lower()
+    branded = str(data.get("brand_profile") or "").strip().lower() == BUBU_YIER_BRAND_PROFILE
+    if branded and backend != BUBU_YIER_BACKEND:
+        raise ValueError(
+            f"brand_profile '{BUBU_YIER_BRAND_PROFILE}' requires voice_backend "
+            f"'{BUBU_YIER_BACKEND}', not '{backend}'."
+        )
     if backend == "kokoro-zh-local":
         default_voice = KOKORO_ZH_DEFAULT_VOICES[speaker]
         default_model = KOKORO_ZH_MODEL
+        default_styles = LOCAL_STYLE_BY_EMOTION[speaker]
+    elif backend == BUBU_YIER_BACKEND:
+        default_voice = BUBU_YIER_DEFAULT_VOICES[speaker]
+        default_model = BUBU_YIER_MODEL
         default_styles = LOCAL_STYLE_BY_EMOTION[speaker]
     elif backend == "lemonade-local":
         default_voice = "zm_yunjian" if speaker == "male" else "zf_xiaobei"
@@ -300,12 +343,53 @@ def resolve_voice_profile(data, speaker):
         default_voice = "zh-CN-YunjianNeural" if speaker == "male" else "zh-CN-XiaoxiaoNeural"
         default_model = LEMONADE_KOKORO_MODEL
         default_styles = DEFAULT_STYLE_BY_EMOTION[speaker]
-    legacy_voice = data.get(f"{speaker}_voice", default_voice)
+    legacy_voice = data.get(f"{speaker}_voice") or default_voice
     profiles = data.get("voice_profiles") or {}
     profile = profiles.get(speaker) if isinstance(profiles, dict) else None
     profile = dict(profile) if isinstance(profile, dict) else {}
-    profile["voice"] = profile.get("voice") or legacy_voice
-    profile.setdefault("model", data.get("voice_model") or default_model)
+    if branded:
+        expected_voice = BUBU_YIER_DEFAULT_VOICES[speaker]
+        root_voice = data.get(f"{speaker}_voice")
+        profile_voice = profile.get("voice")
+        for location, configured_voice in (
+            (f"{speaker}_voice", root_voice),
+            (f"voice_profiles.{speaker}.voice", profile_voice),
+        ):
+            if configured_voice not in (None, "") and str(configured_voice).strip().lower() != expected_voice:
+                raise ValueError(
+                    f"{BUBU_YIER_BRAND_PROFILE} requires {location}='{expected_voice}', "
+                    f"not '{configured_voice}'."
+                )
+        root_model = data.get("voice_model")
+        profile_model = profile.get("model")
+        for location, configured_model in (
+            ("voice_model", root_model),
+            (f"voice_profiles.{speaker}.model", profile_model),
+        ):
+            if configured_model not in (None, "") and str(configured_model).strip() != BUBU_YIER_MODEL:
+                raise ValueError(
+                    f"{BUBU_YIER_BRAND_PROFILE} requires {location}='{BUBU_YIER_MODEL}', "
+                    f"not '{configured_model}'."
+                )
+        profile["voice"] = expected_voice
+        profile["model"] = BUBU_YIER_MODEL
+        expected_reference = BUBU_YIER_REFERENCE_SPECS[expected_voice]
+        configured_hash = str(profile.get("reference_sha256") or "").strip().lower()
+        if configured_hash and configured_hash != expected_reference["sha256"]:
+            raise ValueError(
+                f"{BUBU_YIER_BRAND_PROFILE} requires the pinned {expected_voice} "
+                "reference_sha256; use a separate non-branded profile for an authorized "
+                "replacement recording."
+            )
+        configured_text = profile.get("reference_text")
+        if configured_text not in (None, "") and str(configured_text).strip() != expected_reference["reference_text"]:
+            raise ValueError(
+                f"{BUBU_YIER_BRAND_PROFILE} requires the pinned {expected_voice} reference_text "
+                "to match the verified recording."
+            )
+    else:
+        profile["voice"] = profile.get("voice") or legacy_voice
+        profile.setdefault("model", data.get("voice_model") or default_model)
     profile.setdefault("default_style", default_styles["neutral"])
     profile.setdefault("styles_by_emotion", default_styles)
     profile.setdefault("rate", "+0%")
@@ -314,6 +398,110 @@ def resolve_voice_profile(data, speaker):
     profile.setdefault("style_degree", 1.0)
     profile.setdefault("voice_design_description", "")
     return profile
+
+
+def resolve_bubu_yier_display_name(data, speaker):
+    """Resolve a branded display name while preventing cast swaps or human aliases."""
+    speaker = "male" if str(speaker).lower() == "male" else "female"
+    expected_name = "布布" if speaker == "male" else "一二"
+    field = f"{speaker}_name"
+    default_name = f"{expected_name}（{'追问' if speaker == 'male' else '主讲'}）"
+    value = data.get(field, default_name)
+    if not isinstance(value, str) or not value.strip().startswith(expected_name):
+        raise ValueError(
+            f"{BUBU_YIER_BRAND_PROFILE} requires {field} to start with '{expected_name}'; "
+            f"got {value!r}."
+        )
+    return value.strip()
+
+
+def preflight_bubu_yier_brand_references(voice_profiles):
+    """Fail closed on cast, model, or unverified external reference drift."""
+    resolved = {}
+    for speaker in ("female", "male"):
+        profile = voice_profiles.get(speaker)
+        if not isinstance(profile, dict):
+            raise ValueError(f"Missing resolved {speaker} voice profile for {BUBU_YIER_BRAND_PROFILE}.")
+        expected_voice = BUBU_YIER_DEFAULT_VOICES[speaker]
+        if profile.get("voice") != expected_voice:
+            raise ValueError(
+                f"Resolved {speaker} voice must be '{expected_voice}', not '{profile.get('voice')}'."
+            )
+        options = resolve_f5_options(profile)
+        if options.get("model") != BUBU_YIER_MODEL:
+            raise ValueError(
+                f"Resolved {speaker} model must be '{BUBU_YIER_MODEL}', not '{options.get('model')}'."
+            )
+        reference = resolve_reference(profile)
+        reference_hash = str(reference.get("sha256") or "").lower()
+        expected_reference = BUBU_YIER_REFERENCE_SPECS[expected_voice]
+        if reference.get("voice") != expected_voice:
+            raise ValueError(
+                f"Resolved {speaker} reference must use '{expected_voice}', not '{reference.get('voice')}'."
+            )
+        if reference.get("verified") is not True or not re.fullmatch(r"[0-9a-f]{64}", reference_hash):
+            raise ValueError(
+                f"Resolved {speaker} reference must have a matching 64-character SHA-256 checksum."
+            )
+        if reference_hash != expected_reference["sha256"]:
+            raise ValueError(
+                f"Resolved {speaker} reference must match the pinned {expected_voice} SHA-256 "
+                f"{expected_reference['sha256']}."
+            )
+        if reference.get("reference_text") != expected_reference["reference_text"]:
+            raise ValueError(
+                f"Resolved {speaker} reference_text must match the pinned {expected_voice} transcript."
+            )
+        resolved[speaker] = reference
+    return resolved
+
+
+def enforce_bubu_yier_addressing_contract(turns, require_bidirectional=False):
+    """Enforce the branded characters' natural forms of address."""
+    records = []
+    for index, turn in enumerate(turns, start=1):
+        if not isinstance(turn, dict):
+            continue
+        speaker = str(turn.get("speaker") or "").strip().lower()
+        text = turn.get("spoken_text") or turn.get("zh_text") or ""
+        text = text if isinstance(text, str) else ""
+        records.append((index, speaker, text))
+        if speaker == "female" and "一二宝" in text:
+            raise ValueError(
+                f"Branded turn {index}: 一二 cannot address 布布 as '一二宝'. "
+                "Use 布布、臭布布或香布布 according to context."
+            )
+        if speaker == "male" and any(nickname in text for nickname in ("臭布布", "香布布")):
+            raise ValueError(
+                f"Branded turn {index}: 布布 cannot address 一二 as 臭布布 or 香布布; use '一二宝'."
+            )
+
+    for nickname in ("一二宝", "臭布布", "香布布"):
+        count = sum(text.count(nickname) for _, _, text in records)
+        if count > 1:
+            raise ValueError(
+                f"Branded dialogue uses special nickname '{nickname}' {count} times; "
+                "keep each special nickname to at most one natural occurrence."
+            )
+
+    if require_bidirectional:
+        male_addresses = any(speaker == "male" and "一二宝" in text for _, speaker, text in records)
+        female_addresses = any(
+            speaker == "female" and any(name in text for name in ("布布", "臭布布", "香布布"))
+            for _, speaker, text in records
+        )
+        if not male_addresses:
+            raise ValueError("A complete 15-20 turn branded dialogue must have 布布 address 一二 as '一二宝' once.")
+        if not female_addresses:
+            raise ValueError("A complete 15-20 turn branded dialogue must have 一二 address 布布 naturally at least once.")
+
+    return {
+        "male_to_female": sum(speaker == "male" and "一二宝" in text for _, speaker, text in records),
+        "female_to_male": sum(
+            speaker == "female" and any(name in text for name in ("布布", "臭布布", "香布布"))
+            for _, speaker, text in records
+        ),
+    }
 
 
 def resolve_delivery(turn, voice_profile):
@@ -750,6 +938,8 @@ def synthesize_turn_audio(turn, voice_backend, voice_profile, out_wav):
             metadata.update(try_kokoro_zh_tts(spoken_text, voice_profile, delivery, out_wav))
         elif voice_backend == "lemonade-local":
             metadata.update(try_lemonade_tts(spoken_text, voice_profile, delivery, out_wav))
+        elif voice_backend == BUBU_YIER_BACKEND:
+            metadata.update(synthesize_bubu_yier(spoken_text, voice_profile, delivery, out_wav))
         else:
             raise ValueError(f"Unsupported voice_backend '{voice_backend}'. Choose one of {sorted(VOICE_BACKENDS)}.")
         if os.path.exists(out_wav) and os.path.getsize(out_wav) > 1000:
@@ -787,6 +977,182 @@ def draw_soundwave_bars(draw, x_start, y_center, num_bars, max_h, color, phase):
         )
 
 
+def bubu_yier_intro_turns():
+    """Return the mandatory, source-independent opening for the branded profile."""
+    return [
+        {
+            "speaker": "female",
+            "spoken_text": "啊哒哒～啊哒哒哒哒～！谢谢大家对我们的喜欢！",
+            "zh_text": "啊哒哒～啊哒哒哒哒～！谢谢大家对我们的喜欢！",
+            "en_text": "Thank you for all the love and support!",
+            "emotion": "excited",
+            "emotion_intensity": 0.86,
+            "character_pose": "yier_catchphrase_dash",
+            "character_caption": "啊哒哒～谢谢大家！",
+            "delivery": {
+                "rate": "-6%",
+                "pitch": "+2Hz",
+                "pause_after_ms": 250,
+                "emphasis_terms": ["谢谢大家"],
+            },
+        },
+        {
+            "speaker": "male",
+            "spoken_text": "感谢「小司在加油」做了这个 Skill——让我们，相遇在科研视频中。",
+            "zh_text": "感谢「小司在加油」做了这个 Skill——让我们，相遇在科研视频中。",
+            "en_text": "Thanks to Xiao Si Zai Jiayou for creating this Skill and bringing us into research videos.",
+            "emotion": "reflective",
+            "emotion_intensity": 0.64,
+            "character_pose": "bubu_warm_greeting",
+            "character_caption": "谢谢，让我们在科研视频中相遇。",
+            "delivery": {
+                "rate": "-8%",
+                "pitch": "-1Hz",
+                "pause_after_ms": 350,
+                "emphasis_terms": ["小司在加油", "相遇"],
+            },
+        },
+        {
+            "speaker": "female",
+            "spoken_text": "好啦，开始讲论文吧！",
+            "zh_text": "好啦，开始讲论文吧！",
+            "en_text": "All right, let us start with the paper!",
+            "emotion": "excited",
+            "emotion_intensity": 0.72,
+            "character_pose": "yier_neutral_intro",
+            "character_caption": "开讲啦！",
+            "delivery": {
+                "rate": "-4%",
+                "pitch": "+1Hz",
+                "pause_after_ms": 420,
+            },
+        },
+    ]
+
+
+def _cover_resize(image, size):
+    target_w, target_h = size
+    scale = max(target_w / image.width, target_h / image.height)
+    resized = image.resize(
+        (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
+        Image.Resampling.LANCZOS,
+    )
+    left = (resized.width - target_w) // 2
+    top = (resized.height - target_h) // 2
+    return resized.crop((left, top, left + target_w, top + target_h))
+
+
+def _character_image(pose_info):
+    if not pose_info or not pose_info.get("asset_available"):
+        return None
+    path = pose_info.get("asset_path")
+    if not path or not os.path.isfile(path):
+        return None
+    cached = _CHARACTER_IMAGE_CACHE.get(path)
+    if cached is None:
+        cached = Image.open(path).convert("RGBA")
+        _CHARACTER_IMAGE_CACHE[path] = cached
+    return cached.copy()
+
+
+def paste_character_sprite(canvas, pose_info, box, opacity=255):
+    """Fit a transparent pose in ``box`` and return its pasted bounds."""
+    sprite = _character_image(pose_info)
+    if sprite is None:
+        return None
+    x0, y0, x1, y1 = [int(value) for value in box]
+    sprite.thumbnail((max(1, x1 - x0), max(1, y1 - y0)), Image.Resampling.LANCZOS)
+    if opacity < 255:
+        alpha = sprite.getchannel("A").point(lambda value: int(value * opacity / 255))
+        sprite.putalpha(alpha)
+    x = x0 + (x1 - x0 - sprite.width) // 2
+    y = y1 - sprite.height
+    canvas.alpha_composite(sprite, (x, y))
+    return [x, y, x + sprite.width, y + sprite.height]
+
+
+def draw_character_stage(canvas, draw, turn, pose_info, listener_pose_info, fonts, box, is_male):
+    """Draw the active pose, the listening partner, and the pose's short line."""
+    x0, y0, x1, y1 = box
+    accent = (251, 146, 60, 235) if is_male else (56, 189, 248, 235)
+    draw.rounded_rectangle(
+        [x0, y0, x1, y1],
+        radius=12,
+        fill=(15, 31, 54, 238),
+        outline=accent,
+        width=2,
+    )
+    emotion = strip_unsupported_emoji((pose_info or {}).get("emotion_zh") or "自然")
+    draw.rounded_rectangle([x0 + 10, y0 + 8, x0 + 112, y0 + 38], radius=14, fill=accent)
+    draw.text((x0 + 20, y0 + 10), emotion[:7], font=fonts["meta"], fill=(8, 20, 38, 255))
+
+    # The listener remains visible as a soft, smaller silhouette while the
+    # speaking character performs the selected action in the foreground.
+    paste_character_sprite(canvas, listener_pose_info, [x0 + 4, y0 + 42, x0 + 105, y0 + 145], opacity=120)
+    paste_character_sprite(canvas, pose_info, [x0 + 54, y0 + 36, x1 - 8, y1 - 54], opacity=255)
+
+    caption = strip_unsupported_emoji(turn.get("character_caption") or (pose_info or {}).get("caption_zh") or "")
+    bubble = [x0 + 10, y1 - 54, x1 - 10, y1 - 10]
+    draw.rounded_rectangle(bubble, radius=18, fill=(248, 250, 252, 244), outline=accent, width=2)
+    lines = wrap_text(draw, caption, fonts["meta"], (x1 - x0) - 36)
+    line = lines[0] if lines else ""
+    tb = draw.textbbox((0, 0), line, font=fonts["meta"])
+    tx = x0 + (x1 - x0 - (tb[2] - tb[0])) // 2
+    draw.text((tx, y1 - 45), line, font=fonts["meta"], fill=(15, 23, 42, 255))
+
+
+def render_bubu_yier_intro_frame(turn, intro_idx, total_intro, pose_info, listener_pose_info, fonts):
+    """Render one branded opening frame before any paper evidence turn."""
+    W, H = 1920, 1080
+    if not os.path.isfile(BUBU_YIER_INTRO_BACKGROUND):
+        raise FileNotFoundError(f"Missing branded intro background: {BUBU_YIER_INTRO_BACKGROUND}")
+    background = Image.open(BUBU_YIER_INTRO_BACKGROUND).convert("RGB")
+    background = _cover_resize(background, (W, H)).filter(ImageFilter.GaussianBlur(radius=2.2))
+    background = ImageEnhance.Brightness(background).enhance(0.48).convert("RGBA")
+    canvas = Image.alpha_composite(background, Image.new("RGBA", (W, H), (3, 15, 36, 70)))
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    draw.rounded_rectangle([42, 34, 205, 82], radius=12, fill=(220, 38, 38, 246))
+    draw.text((62, 45), "PAPER-EAR", font=fonts["header"], fill="white")
+    draw.text((960, 82), "一二 × 布布 · 科研视频见面礼", font=load_font(FONT_BOLD_CANDIDATES, 50), fill="white", anchor="ma")
+    draw.text((960, 152), "两只小熊，把一篇论文讲明白", font=load_font(FONT_BOLD_CANDIDATES, 34), fill=(186, 230, 253, 255), anchor="ma")
+
+    speaker = str(turn.get("speaker", "female")).lower()
+    active_is_bubu = speaker == "male"
+    yier_pose = listener_pose_info if active_is_bubu else pose_info
+    bubu_pose = pose_info if active_is_bubu else listener_pose_info
+    yier_opacity = 170 if active_is_bubu else 255
+    bubu_opacity = 255 if active_is_bubu else 170
+    paste_character_sprite(canvas, yier_pose, [78, 420, 610, 1025], opacity=yier_opacity)
+    paste_character_sprite(canvas, bubu_pose, [1310, 420, 1842, 1025], opacity=bubu_opacity)
+
+    card = [535, 318, 1385, 850]
+    accent = (251, 146, 60, 245) if active_is_bubu else (56, 189, 248, 245)
+    draw.rounded_rectangle(card, radius=42, fill=(5, 22, 48, 236), outline=accent, width=4)
+    speaker_name = "布布 · 男声追问" if active_is_bubu else "一二 · 女声主讲"
+    draw.rounded_rectangle([590, 362, 930, 420], radius=27, fill=accent)
+    draw.text((615, 375), speaker_name, font=fonts["speaker"], fill=(7, 19, 38, 255))
+
+    zh_text = strip_unsupported_emoji(turn.get("zh_text") or turn.get("spoken_text") or "")
+    zh_lines = wrap_text(draw, zh_text, load_font(FONT_BOLD_CANDIDATES, 43), 720)
+    sy = 470
+    for line in zh_lines[:4]:
+        draw.text((960, sy), line, font=load_font(FONT_BOLD_CANDIDATES, 43), fill="white", anchor="ma")
+        sy += 66
+    en_text = strip_unsupported_emoji(turn.get("en_text") or "")
+    en_lines = wrap_text(draw, en_text, fonts["sub_en"], 700)
+    for line in en_lines[:2]:
+        draw.text((960, sy + 8), line, font=fonts["sub_en"], fill=(186, 230, 253, 255), anchor="ma")
+        sy += 32
+
+    for dot_idx in range(total_intro):
+        x = 920 + dot_idx * 40
+        fill = accent if dot_idx == intro_idx else (100, 116, 139, 210)
+        draw.ellipse([x, 890, x + 18, 908], fill=fill)
+    draw.text((960, 960), "AI 合成 · 非官方配音 · 学习与研究演示", font=fonts["meta"], fill=(203, 213, 225, 255), anchor="ma")
+    return canvas.convert("RGB")
+
+
 def render_frame(
     page_img,
     turn,
@@ -797,6 +1163,8 @@ def render_frame(
     female_name,
     red_box,
     fonts,
+    pose_info=None,
+    listener_pose_info=None,
     pulse_phase=0.0,
 ):
     W, H = 1920, 1080
@@ -967,16 +1335,30 @@ def render_frame(
     if not notes and turn.get("box_label"):
         notes = [f"当前聚焦：{strip_unsupported_emoji(turn.get('box_label'))}"]
 
+    character_stage_enabled = bool(pose_info)
+    notes_width = 390 if character_stage_enabled else rw - 40
     ny_cursor = ty + 52
     for note in notes[:4]:
         clean_note = strip_unsupported_emoji(note)
-        wrapped = wrap_text(draw, f"• {clean_note}", fonts["notes"], rw - 40)
+        wrapped = wrap_text(draw, f"• {clean_note}", fonts["notes"], notes_width)
         for ln in wrapped[:3]:
             if ny_cursor + 28 > ty + th - 12:
                 break
             draw.text((rx + 20, ny_cursor), ln, font=fonts["notes"], fill=(226, 232, 240, 255))
             ny_cursor += 30
         ny_cursor += 6
+
+    if character_stage_enabled:
+        draw_character_stage(
+            canvas,
+            draw,
+            turn,
+            pose_info,
+            listener_pose_info,
+            fonts,
+            [rx + 426, ty + 44, rx + rw - 14, ty + th - 12],
+            is_male,
+        )
 
     # 4. Bottom Panel: Bilingual Subtitles (中英双语字幕) + Progress Bar
     sub_y = 892
@@ -1016,6 +1398,40 @@ def render_frame(
     return canvas.convert("RGB")
 
 
+def encode_still_segment(frame_path, wav_path, output_path, duration, fps):
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            frame_path,
+            "-i",
+            wav_path,
+            "-c:v",
+            "libx264",
+            "-tune",
+            "stillimage",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
+            "-shortest",
+            "-t",
+            f"{duration:.2f}",
+            output_path,
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def render_video(
     pdf_path,
     script_json_path,
@@ -1027,23 +1443,65 @@ def render_video(
     require_tts=False,
     report_json=None,
 ):
+    pdf_path = str(Path(pdf_path).expanduser().resolve(strict=True))
+    script_json_path = str(Path(script_json_path).expanduser().resolve(strict=True))
     with open(script_json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    with pdfplumber.open(pdf_path) as source_pdf:
+        pdf_page_count = len(source_pdf.pages)
+    if pdf_page_count < 1:
+        raise ValueError("The input PDF contains no pages.")
+    input_identity = collect_input_identity(pdf_path, script_json_path, pdf_page_count)
+
     paper_title = data.get("title", os.path.basename(pdf_path))
-    male_name = data.get("male_name", "师兄 Alex (提问/思辨)")
-    female_name = data.get("female_name", "主讲人 Lin (精读讲解)")
+    brand_profile = str(data.get("brand_profile") or "").strip().lower()
+    branded = brand_profile == BUBU_YIER_BRAND_PROFILE
+    source_binding = enforce_document_binding(
+        data,
+        input_identity,
+        script_json_path,
+        require_source_document=branded,
+    )
+    if branded:
+        male_name = resolve_bubu_yier_display_name(data, "male")
+        female_name = resolve_bubu_yier_display_name(data, "female")
+    else:
+        male_name = data.get("male_name", "师兄 Alex (提问/思辨)")
+        female_name = data.get("female_name", "主讲人 Lin (精读讲解)")
     voice_backend = str(data.get("voice_backend") or "edge-tts").lower()
     if voice_backend not in VOICE_BACKENDS:
         raise ValueError(f"Unsupported voice_backend '{voice_backend}'. Choose one of {sorted(VOICE_BACKENDS)}.")
+    if branded and voice_backend != BUBU_YIER_BACKEND:
+        raise ValueError(
+            f"brand_profile '{BUBU_YIER_BRAND_PROFILE}' requires voice_backend "
+            f"'{BUBU_YIER_BACKEND}' so the mandatory cast and opening cannot silently drift."
+        )
     voice_profiles = {
         "male": resolve_voice_profile(data, "male"),
         "female": resolve_voice_profile(data, "female"),
     }
+    character_library = CharacterLibrary.from_file() if branded else None
+    intro_turns = bubu_yier_intro_turns() if branded else []
     turns = data.get("turns", [])
     if not turns:
         raise ValueError("Dialogue script JSON contains no 'turns'.")
     source_turn_count = len(turns)
+    if branded:
+        for turn_index, turn in enumerate(turns, start=1):
+            page = turn.get("page") if isinstance(turn, dict) else None
+            if isinstance(page, bool) or not isinstance(page, int):
+                raise ValueError(f"Branded turn {turn_index} must declare an integer page number.")
+            if page < 1 or page > pdf_page_count:
+                raise ValueError(
+                    f"Branded turn {turn_index} targets page {page}, but the current PDF has "
+                    f"pages 1..{pdf_page_count}. Refusing to clamp it to a different evidence page."
+                )
+        preflight_bubu_yier_brand_references(voice_profiles)
+        enforce_bubu_yier_addressing_contract(
+            turns,
+            require_bidirectional=15 <= source_turn_count <= 20,
+        )
     if max_turns is not None:
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1.")
@@ -1073,14 +1531,85 @@ def render_video(
         )
         if not page_files:
             raise RuntimeError("Failed to render PDF pages via pdftoppm.")
+        if len(page_files) != pdf_page_count:
+            raise RuntimeError(
+                f"PDF page-count drift: pdfplumber found {pdf_page_count} pages but pdftoppm rendered "
+                f"{len(page_files)}."
+            )
 
         page_images = [Image.open(p).convert("RGB") for p in page_files]
         segment_files = []
         audio_modes = set()
         audio_mode_by_turn = []
+        character_pose_by_turn = []
+
+        # The branded opening is intentionally separate from paper turns.  It
+        # never consumes an evidence anchor and is therefore unaffected by
+        # --max-turns, which remains a paper-preview control.
+        for intro_idx, intro_turn in enumerate(intro_turns):
+            speaker = "male" if str(intro_turn.get("speaker", "female")).lower() == "male" else "female"
+            listener_speaker = "female" if speaker == "male" else "male"
+            pose_info = character_library.select_pose(speaker, intro_turn)
+            listener_pose_info = character_library.select_pose(listener_speaker, {})
+
+            wav_path = os.path.join(tmpdir, f"intro_{intro_idx:03d}.wav")
+            duration, mode, tts_error, speech_meta = synthesize_turn_audio(
+                intro_turn,
+                voice_backend,
+                voice_profiles[speaker],
+                wav_path,
+            )
+            audio_modes.add(mode)
+            intro_audio = {
+                "kind": "intro",
+                "intro_turn": intro_idx + 1,
+                "speaker": speaker,
+                "pose": pose_info["id"],
+                "mode": mode,
+                "duration_seconds": round(duration, 3),
+                **speech_meta,
+            }
+            if tts_error:
+                intro_audio["tts_error"] = tts_error
+            audio_mode_by_turn.append(intro_audio)
+            character_pose_by_turn.append(
+                {
+                    "kind": "intro",
+                    "intro_turn": intro_idx + 1,
+                    "speaker": speaker,
+                    "pose": pose_info["id"],
+                    "caption_zh": intro_turn.get("character_caption") or pose_info["caption_zh"],
+                    "selected_by": pose_info["selected_by"],
+                }
+            )
+            if (require_tts or branded) and mode != voice_backend:
+                raise RuntimeError(
+                    f"Intro turn {intro_idx + 1} fell back to '{mode}'. "
+                    f"A publishable run requires '{voice_backend}'. Root cause: {tts_error}"
+                )
+
+            intro_frame = render_bubu_yier_intro_frame(
+                intro_turn,
+                intro_idx,
+                len(intro_turns),
+                pose_info,
+                listener_pose_info,
+                fonts,
+            )
+            frame_path = os.path.join(tmpdir, f"frame_intro_{intro_idx:03d}.png")
+            intro_frame.save(frame_path, "PNG")
+            if export_gif:
+                gif_frames.append(intro_frame.resize((960, 540), Image.Resampling.LANCZOS))
+
+            seg_mp4 = os.path.join(tmpdir, f"seg_intro_{intro_idx:03d}.mp4")
+            encode_still_segment(frame_path, wav_path, seg_mp4, duration, fps)
+            segment_files.append(seg_mp4)
 
         for idx, turn in enumerate(turns):
-            page_num = max(1, min(len(page_images), int(turn.get("page", 1))))
+            if branded:
+                page_num = turn["page"]
+            else:
+                page_num = max(1, min(len(page_images), int(turn.get("page", 1))))
             page_img = page_images[page_num - 1]
 
             red_box = turn.get("red_box")
@@ -1096,6 +1625,25 @@ def render_video(
 
             wav_path = os.path.join(tmpdir, f"turn_{idx:03d}.wav")
             speaker = "male" if str(turn.get("speaker", "female")).lower() == "male" else "female"
+            pose_info = None
+            listener_pose_info = None
+            if character_library is not None:
+                listener_speaker = "female" if speaker == "male" else "male"
+                pose_info = character_library.select_pose(speaker, turn)
+                listener_pose_info = character_library.select_pose(listener_speaker, {})
+                character_pose_by_turn.append(
+                    {
+                        "kind": "paper",
+                        "turn": idx + 1,
+                        "speaker": speaker,
+                        "pose": pose_info["id"],
+                        "emotion_zh": pose_info["emotion_zh"],
+                        "action_zh": pose_info["action_zh"],
+                        "caption_zh": turn.get("character_caption") or pose_info["caption_zh"],
+                        "selected_by": pose_info["selected_by"],
+                        "used_fallback": pose_info["used_fallback"],
+                    }
+                )
             duration, mode, tts_error, speech_meta = synthesize_turn_audio(
                 turn,
                 voice_backend,
@@ -1104,7 +1652,9 @@ def render_video(
             )
             audio_modes.add(mode)
             turn_audio = {
+                "kind": "paper",
                 "turn": idx + 1,
+                "speaker": speaker,
                 "mode": mode,
                 "duration_seconds": round(duration, 3),
                 **speech_meta,
@@ -1112,7 +1662,7 @@ def render_video(
             if tts_error:
                 turn_audio["tts_error"] = tts_error
             audio_mode_by_turn.append(turn_audio)
-            if require_tts and mode != voice_backend:
+            if (require_tts or branded) and mode != voice_backend:
                 raise RuntimeError(
                     f"Turn {idx + 1} fell back to '{mode}'. "
                     f"A publishable run requires the configured provider '{voice_backend}'; check credentials, "
@@ -1121,7 +1671,18 @@ def render_video(
                 )
 
             frame_a = render_frame(
-                page_img, turn, idx, len(turns), paper_title, male_name, female_name, red_box, fonts, pulse_phase=idx * 1.1
+                page_img,
+                turn,
+                idx,
+                len(turns),
+                paper_title,
+                male_name,
+                female_name,
+                red_box,
+                fonts,
+                pose_info=pose_info,
+                listener_pose_info=listener_pose_info,
+                pulse_phase=idx * 1.1,
             )
             frame_path = os.path.join(tmpdir, f"frame_{idx:03d}.png")
             frame_a.save(frame_path, "PNG")
@@ -1129,42 +1690,23 @@ def render_video(
             if export_gif:
                 gif_frames.append(frame_a.resize((960, 540), Image.Resampling.LANCZOS))
                 frame_b = render_frame(
-                    page_img, turn, idx, len(turns), paper_title, male_name, female_name, red_box, fonts, pulse_phase=idx * 1.1 + 1.6
+                    page_img,
+                    turn,
+                    idx,
+                    len(turns),
+                    paper_title,
+                    male_name,
+                    female_name,
+                    red_box,
+                    fonts,
+                    pose_info=pose_info,
+                    listener_pose_info=listener_pose_info,
+                    pulse_phase=idx * 1.1 + 1.6,
                 )
                 gif_frames.append(frame_b.resize((960, 540), Image.Resampling.LANCZOS))
 
             seg_mp4 = os.path.join(tmpdir, f"seg_{idx:03d}.mp4")
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-loop",
-                    "1",
-                    "-i",
-                    frame_path,
-                    "-i",
-                    wav_path,
-                    "-c:v",
-                    "libx264",
-                    "-tune",
-                    "stillimage",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "128k",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-r",
-                    str(fps),
-                    "-shortest",
-                    "-t",
-                    f"{duration:.2f}",
-                    seg_mp4,
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            encode_still_segment(frame_path, wav_path, seg_mp4, duration, fps)
             segment_files.append(seg_mp4)
 
         concat_list = os.path.join(tmpdir, "concat.txt")
@@ -1183,8 +1725,20 @@ def render_video(
                 "0",
                 "-i",
                 concat_list,
-                "-c",
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0",
+                "-c:v",
                 "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                FINAL_AUDIO_BITRATE,
+                "-af",
+                FINAL_AUDIO_FILTER,
+                "-movflags",
+                "+faststart",
                 output_mp4,
             ],
             check=True,
@@ -1207,16 +1761,53 @@ def render_video(
         if not os.path.exists(output_mp4) or os.path.getsize(output_mp4) < 1024:
             raise RuntimeError("ffmpeg returned successfully but the output MP4 is missing or empty.")
 
+        final_identity = collect_input_identity(pdf_path, script_json_path, pdf_page_count)
+        if (
+            final_identity["pdf_sha256"] != input_identity["pdf_sha256"]
+            or final_identity["script_sha256"] != input_identity["script_sha256"]
+        ):
+            raise RuntimeError("The input PDF or dialogue script changed during rendering; the output is not trusted.")
+        video_sha256 = sha256_file(output_mp4)
+
         report = {
             "output": os.path.abspath(output_mp4),
+            **input_identity,
+            "video_sha256": video_sha256,
+            "video_hash_mode": RAW_BYTES_HASH_MODE,
+            "source_binding": {
+                "declared": source_binding["declared"],
+                "required": source_binding["required"],
+                "verified": source_binding["verified"],
+            },
+            "brand_profile": brand_profile or None,
+            "female_name": female_name,
+            "male_name": male_name,
+            "resolved_voices": {
+                speaker: {
+                    "voice": profile.get("voice"),
+                    "model": profile.get("model"),
+                }
+                for speaker, profile in voice_profiles.items()
+            },
             "source_turns": source_turn_count,
             "rendered_turns": len(turns),
+            "mandatory_intro_turns": len(intro_turns),
+            "rendered_segments": len(segment_files),
             "dpi": dpi,
             "fps": fps,
-            "require_tts": bool(require_tts),
+            "require_tts": bool(require_tts or branded),
+            "require_tts_requested": bool(require_tts),
             "voice_backend": voice_backend,
             "audio_modes": sorted(audio_modes),
+            "audio_mastering": {
+                "final_gain_db": FINAL_AUDIO_GAIN_DB,
+                "limiter_ceiling_linear": FINAL_AUDIO_LIMITER_CEILING,
+                "audio_codec": "aac",
+                "audio_bitrate": FINAL_AUDIO_BITRATE,
+                "final_audio_reencode": True,
+            },
             "turn_audio": audio_mode_by_turn,
+            "character_poses": character_pose_by_turn,
             "file_size_bytes": os.path.getsize(output_mp4),
         }
         if report_json:
@@ -1227,7 +1818,8 @@ def render_video(
 
         print(
             f"Successfully generated MP4: {output_mp4} "
-            f"(turns={len(turns)}, audio_modes={sorted(audio_modes)})"
+            f"(intro={len(intro_turns)}, paper_turns={len(turns)}, "
+            f"audio_modes={sorted(audio_modes)})"
         )
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

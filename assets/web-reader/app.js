@@ -10,6 +10,10 @@
   const visualCards = [...document.querySelectorAll(".visual-card")];
   const navLinks = [...document.querySelectorAll(".rail-nav a")];
   const sections = [...document.querySelectorAll(".reader-section[id]")];
+  const companion = document.querySelector("#brand-companion");
+  const companionYier = document.querySelector("#companion-yier");
+  const companionBubu = document.querySelector("#companion-bubu");
+  const companionStatus = document.querySelector("#companion-context-status");
   const dialog = document.querySelector("#visual-dialog");
   const dialogImage = document.querySelector("#dialog-image");
   const dialogTitle = document.querySelector("#dialog-title");
@@ -17,6 +21,24 @@
   const dialogViewButtons = [...document.querySelectorAll("[data-dialog-view]")];
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let currentVisual = null;
+
+  function setCompanionContext(context) {
+    if (!companion || !companionYier || !companionBubu) return;
+    const mode = context === "critique" ? "critique" : "evidence";
+    companionYier.src = companion.dataset[`yier${mode[0].toUpperCase()}${mode.slice(1)}`];
+    companionBubu.src = companion.dataset[`bubu${mode[0].toUpperCase()}${mode.slice(1)}`];
+    if (mode === "critique") {
+      companionYier.alt = "一二举起限制提示牌，提醒读者收窄论文结论";
+      companionBubu.alt = "布布审慎追问论文假设、复现与适用边界";
+      if (companionStatus) companionStatus.textContent = "现在：核对局限与边界";
+    } else {
+      companionYier.alt = "一二指向论文证据，提示读者核对原页";
+      companionBubu.alt = "布布举手追问论文结论的证据依据";
+      if (companionStatus) companionStatus.textContent = "现在：顺着证据读";
+    }
+  }
+
+  setCompanionContext("evidence");
 
   const safeStorage = {
     get(key) {
@@ -87,6 +109,7 @@
         navLinks.forEach((link) => {
           link.setAttribute("aria-current", String(link.getAttribute("href") === `#${visible.target.id}`));
         });
+        setCompanionContext(visible.target.dataset.companionContext);
       },
       { rootMargin: "-18% 0px -62%", threshold: [0.05, 0.25, 0.55] },
     );

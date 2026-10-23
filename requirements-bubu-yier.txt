@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Optional on-device Bubu/Yier voice backend. Python 3.10+ is required by
+# f5-tts. Model weights remain in the upstream/user cache and are not vendored
+# into Paper-Ear.
+f5-tts>=0.3.0,<1.2.0
+torch>=2.0.0
+torchaudio>=2.0.0

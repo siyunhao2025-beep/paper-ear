@@ -13,9 +13,27 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from document_binding import collect_input_identity, enforce_document_binding, sha256_file
+from site_identity import (
+    SITE_HASH_CONTRACT,
+    SITE_IDENTITY_SCHEMA_VERSION,
+    site_file_record,
+    site_manifest_sha256,
+)
+
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = SKILL_DIR / "assets" / "web-reader"
+CHARACTER_DIR = SKILL_DIR / "assets" / "characters"
+BRAND_PROFILE = "bubu-yier-v1"
+BRAND_CHARACTER_ASSETS = {
+    "hero_yier": "yier_calm_explain.png",
+    "hero_bubu": "bubu_gentle_question.png",
+    "evidence_yier": "yier_evidence_point.png",
+    "evidence_bubu": "bubu_gentle_question.png",
+    "critique_yier": "yier_limitation_warn.png",
+    "critique_bubu": "bubu_skeptical_probe.png",
+}
 CLAIM_LABELS = {
     "paper_evidence": "论文证据",
     "author_claim": "作者主张",
@@ -59,6 +77,77 @@ def render_pages(pdf_path, page_dir, dpi):
         ["pdftoppm", "-png", "-r", str(dpi), str(pdf_path), str(prefix)],
         check=True,
     )
+
+
+def load_pdf_page_count(pdf_path):
+    try:
+        import pdfplumber
+    except ImportError as exc:
+        raise RuntimeError("Python package 'pdfplumber' is required.") from exc
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        return len(pdf.pages)
+
+
+def source_binding_for_web(pdf_path, brief_path, brief):
+    """Bind a branded brief to the exact PDF before any site files are created."""
+    page_count = load_pdf_page_count(pdf_path)
+    identity = collect_input_identity(pdf_path, brief_path, page_count)
+    binding = enforce_document_binding(
+        brief,
+        identity,
+        brief_path,
+        require_source_document=brief.get("brand_profile") == BRAND_PROFILE,
+        artifact_label="web brief",
+    )
+    return {
+        "source_document": identity["source_document"],
+        "pdf_sha256": identity["pdf_sha256"],
+        "pdf_pages": identity["pdf_pages"],
+        "web_brief": identity["dialogue_script"],
+        "brief_sha256": identity["script_sha256"],
+        "binding": binding,
+    }
+
+
+def copy_brand_character_assets(output_dir):
+    """Copy the fixed branded cast into the self-contained site package."""
+    destination = output_dir / "assets" / "characters"
+    destination.mkdir(parents=True, exist_ok=True)
+    copied = {}
+    for role, filename in BRAND_CHARACTER_ASSETS.items():
+        source = CHARACTER_DIR / filename
+        if not source.is_file():
+            raise FileNotFoundError(f"Branded character asset not found: {source}")
+        target = destination / filename
+        shutil.copy2(source, target)
+        copied[role] = f"assets/characters/{filename}"
+    return copied
+
+
+def write_site_identity(output_dir, identity, brand_profile):
+    """Write a cross-platform tamper-evident manifest for a branded site."""
+    files = {}
+    for path in sorted(output_dir.rglob("*")):
+        if not path.is_file() or path.name == "site-identity.json":
+            continue
+        relative = path.relative_to(output_dir).as_posix()
+        files[relative] = site_file_record(path)
+    manifest = {
+        "schema_version": SITE_IDENTITY_SCHEMA_VERSION,
+        "brand_profile": brand_profile,
+        "pdf_sha256": identity["pdf_sha256"],
+        "pdf_pages": identity["pdf_pages"],
+        "brief_sha256": identity["brief_sha256"],
+        "brief_content_sha256": files.get("source-brief.json", {}).get("sha256"),
+        "source_binding_verified": bool(identity["binding"].get("verified")),
+        "hash_contract": SITE_HASH_CONTRACT,
+        "site_sha256": site_manifest_sha256(files),
+        "files": files,
+    }
+    (output_dir / "site-identity.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
 
 
 def crop_visuals(brief, page_dir, output_dir):
@@ -270,6 +359,62 @@ def canonical_source(paper):
     return ""
 
 
+def render_brand_elements(brief):
+    if brief.get("brand_profile") != BRAND_PROFILE:
+        return {"body_attribute": "", "hero": "", "companion": ""}
+    brand = brief.get("brand", {})
+    assets = brand.get("assets", {})
+    required = set(BRAND_CHARACTER_ASSETS)
+    if not required.issubset(assets):
+        missing = ", ".join(sorted(required - set(assets)))
+        raise ValueError(f"Branded web assets are incomplete: {missing}")
+
+    hero = f"""
+        <section class="hero-cast" aria-label="一二与布布角色分工" data-brand-cast="bubu-yier-v1">
+          <figure class="hero-character hero-character-yier">
+            <img src="{esc(assets['hero_yier'])}" alt="一二，白色棕耳的小熊女主讲，正在指向论文证据" width="512" height="512">
+            <figcaption><strong>一二</strong><span>女主讲 · 讲证据</span></figcaption>
+          </figure>
+          <div class="cast-thesis">
+            <strong>一二讲证据、布布问边界</strong>
+            <span>角色提示是阅读导航，不是论文证据。</span>
+          </div>
+          <figure class="hero-character hero-character-bubu">
+            <img src="{esc(assets['hero_bubu'])}" alt="布布，棕色小熊男追问，正在礼貌举手提问" width="512" height="512">
+            <figcaption><strong>布布</strong><span>男追问 · 问边界</span></figcaption>
+          </figure>
+        </section>"""
+    companion = f"""
+      <section class="brand-companion" id="brand-companion" aria-labelledby="brand-companion-title"
+        data-yier-evidence="{esc(assets['evidence_yier'])}"
+        data-bubu-evidence="{esc(assets['evidence_bubu'])}"
+        data-yier-critique="{esc(assets['critique_yier'])}"
+        data-bubu-critique="{esc(assets['critique_bubu'])}">
+        <div class="companion-head">
+          <h2 id="brand-companion-title">一二讲证据、布布问边界</h2>
+          <p id="companion-context-status" aria-live="polite">现在：顺着证据读</p>
+        </div>
+        <div class="companion-cast">
+          <figure>
+            <img id="companion-yier" src="{esc(assets['evidence_yier'])}"
+              alt="一二指向论文证据，提示读者核对原页" width="512" height="512">
+            <figcaption><strong>一二</strong><span>证据在哪一页？</span></figcaption>
+          </figure>
+          <figure>
+            <img id="companion-bubu" src="{esc(assets['evidence_bubu'])}"
+              alt="布布举手追问论文结论的适用边界" width="512" height="512">
+            <figcaption><strong>布布</strong><span>结论能走多远？</span></figcaption>
+          </figure>
+        </div>
+        <p class="companion-disclosure">角色姿态只帮助定位阅读语境，不改写原文，也不计入证据。</p>
+      </section>"""
+    return {
+        "body_attribute": ' data-brand-profile="bubu-yier-v1"',
+        "hero": hero,
+        "companion": companion,
+    }
+
+
 def build_html(brief, visuals, source_pdf):
     paper = brief["paper"]
     summary = brief["summary"]
@@ -297,6 +442,7 @@ def build_html(brief, visuals, source_pdf):
     glossary = render_glossary(brief.get("glossary", []))
     logic_count = max(1, min(5, len(brief.get("logic_map", []))))
     citation = " · ".join(value for value in [authors, venue, doi] if value)
+    brand_elements = render_brand_elements(brief)
 
     nav_items = [
         ("quick", "30 秒结论", "scan"),
@@ -316,7 +462,7 @@ def build_html(brief, visuals, source_pdf):
     glossary_section = ""
     if glossary:
         glossary_section = f"""
-        <section class="reader-section" id="glossary" data-depth="deep">
+        <section class="reader-section" id="glossary" data-depth="deep" data-companion-context="evidence">
           <div class="section-head">
             <div><p class="section-kicker">Terminology</p><h2 class="section-title">先把术语说清楚</h2></div>
             <p class="section-note">保留英文术语，中文只解释本论文语境中的含义。</p>
@@ -324,7 +470,7 @@ def build_html(brief, visuals, source_pdf):
           <dl class="glossary reveal">{glossary}</dl>
         </section>"""
 
-    return f"""<!doctype html>
+    document = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
@@ -334,7 +480,7 @@ def build_html(brief, visuals, source_pdf):
   <link rel="stylesheet" href="styles.css">
   <script>document.documentElement.classList.add('js');</script>
 </head>
-<body data-mode="standard">
+<body data-mode="standard"{brand_elements['body_attribute']}>
   <a class="skip-link" href="#main-content">跳到正文</a>
   <header class="paper-hero">
     <div class="hero-inner">
@@ -344,9 +490,12 @@ def build_html(brief, visuals, source_pdf):
         <p class="hero-authors">{esc(authors)}</p>
         <div class="hero-source"><span>{esc(venue)}</span><span>{esc(paper.get('doi', ''))}</span>{source_html}</div>
       </div>
-      <div class="hero-summary">
-        <span class="meta-label">一句话先读懂</span>
-        <p>{esc(summary.get('one_sentence'))}</p>
+      <div class="hero-side">
+        {brand_elements['hero']}
+        <div class="hero-summary">
+          <span class="meta-label">一句话先读懂</span>
+          <p>{esc(summary.get('one_sentence'))}</p>
+        </div>
       </div>
     </div>
     <div class="hero-orbit" aria-hidden="true"></div>
@@ -365,10 +514,11 @@ def build_html(brief, visuals, source_pdf):
       <p class="search-status" id="search-status" aria-live="polite">输入术语、结论、页码或图表编号</p>
       <nav aria-label="论文结构"><ol class="rail-nav">{nav}</ol></nav>
       <p class="rail-meta">预计阅读 {esc(reading_minutes)} 分钟<br>{esc(visual_count_text)}<br>PDF 共 {esc(paper.get('page_count'))} 页</p>
+      {brand_elements['companion']}
     </aside>
 
     <main class="reader-content" id="main-content">
-      <section class="reader-section" id="quick" data-depth="scan">
+      <section class="reader-section" id="quick" data-depth="scan" data-companion-context="evidence">
         <div class="section-head">
           <div><p class="section-kicker">Fast pass</p><h2 class="section-title">30 秒，先抓住论文骨架</h2></div>
           <p class="section-note">这里是导航，不代替原论文；所有数字和结论都应能回到 PDF 页码。</p>
@@ -377,7 +527,7 @@ def build_html(brief, visuals, source_pdf):
         <p class="three-minute reveal">{esc(summary.get('three_minute'))}</p>
       </section>
 
-      <section class="reader-section" id="logic" data-depth="standard">
+      <section class="reader-section" id="logic" data-depth="standard" data-companion-context="evidence">
         <div class="section-head">
           <div><p class="section-kicker">Argument spine</p><h2 class="section-title">研究问题怎样走到结论</h2></div>
           <p class="section-note">沿着问题、方法、证据和边界阅读，避免把“作者说了什么”误当成“数据已经证明什么”。</p>
@@ -385,7 +535,7 @@ def build_html(brief, visuals, source_pdf):
         <ol class="logic-map" style="--logic-count:{logic_count}">{render_logic_map(brief.get('logic_map', []))}</ol>
       </section>
 
-      <section class="reader-section" id="claims" data-depth="standard">
+      <section class="reader-section" id="claims" data-depth="standard" data-companion-context="evidence">
         <div class="section-head">
           <div><p class="section-kicker">Evidence ledger</p><h2 class="section-title">核心主张与证据强度</h2></div>
           <p class="section-note">红色是论文/作者内容；青色是讲解推断；琥珀色是批判性分析。</p>
@@ -393,7 +543,7 @@ def build_html(brief, visuals, source_pdf):
         <div class="claim-ledger">{render_claims(brief.get('claims', []))}</div>
       </section>
 
-      <section class="reader-section" id="visuals" data-depth="standard">
+      <section class="reader-section" id="visuals" data-depth="standard" data-companion-context="evidence">
         <div class="section-head">
           <div><p class="section-kicker">Original visual evidence</p><h2 class="section-title">图、表、公式，一个都不丢</h2></div>
           <p class="section-note">展示的是 PDF 原始像素裁切，不重画数据；点击可在高清裁图与原页定位之间切换。</p>
@@ -407,7 +557,7 @@ def build_html(brief, visuals, source_pdf):
         <div class="visual-gallery">{render_visuals(visuals, source_pdf)}</div>
       </section>
 
-      <section class="reader-section" id="walkthrough" data-depth="deep">
+      <section class="reader-section" id="walkthrough" data-depth="deep" data-companion-context="evidence">
         <div class="section-head">
           <div><p class="section-kicker">Deep reading</p><h2 class="section-title">按论文逻辑逐段梳理</h2></div>
           <p class="section-note">正文采用可搜索文本；图表公式使用原图，兼顾浏览速度和版面忠实度。</p>
@@ -415,7 +565,7 @@ def build_html(brief, visuals, source_pdf):
         <div class="walkthrough">{render_sections(brief.get('sections', []), visuals_by_id)}</div>
       </section>
 
-      <section class="reader-section" id="boundaries" data-depth="standard">
+      <section class="reader-section" id="boundaries" data-depth="standard" data-companion-context="critique">
         <div class="section-head">
           <div><p class="section-kicker">Evidence boundary</p><h2 class="section-title">结论能走多远，哪里要刹车</h2></div>
           <p class="section-note">把作者自述的限制与我们的批判性判断分开，不替论文扩大结论。</p>
@@ -447,6 +597,7 @@ def build_html(brief, visuals, source_pdf):
 </body>
 </html>
 """
+    return "\n".join(line.rstrip() for line in document.splitlines()) + "\n"
 
 
 def ensure_output_dir(output_dir, force):
@@ -456,7 +607,15 @@ def ensure_output_dir(output_dir, force):
     if force:
         # Remove only files produced by this renderer. User-created files and
         # unrelated subdirectories remain untouched.
-        for name in ("index.html", "styles.css", "app.js", "data.json", "source.pdf"):
+        for name in (
+            "index.html",
+            "styles.css",
+            "app.js",
+            "data.json",
+            "source.pdf",
+            "source-brief.json",
+            "site-identity.json",
+        ):
             path = output_dir / name
             if path.is_file():
                 path.unlink()
@@ -466,6 +625,152 @@ def ensure_output_dir(output_dir, force):
                 for path in assets_dir.glob(pattern):
                     if path.is_file():
                         path.unlink()
+            character_dir = assets_dir / "characters"
+            if character_dir.is_dir():
+                for filename in set(BRAND_CHARACTER_ASSETS.values()):
+                    path = character_dir / filename
+                    if path.is_file():
+                        path.unlink()
+                if not any(character_dir.iterdir()):
+                    character_dir.rmdir()
+
+
+def render_web_reader(
+    pdf_path,
+    brief_path,
+    output_dir,
+    pages_dir=None,
+    dpi=180,
+    copy_pdf=False,
+    force=False,
+    report_json=None,
+):
+    pdf_path = Path(pdf_path).expanduser().resolve()
+    brief_path = Path(brief_path).expanduser().resolve()
+    output_dir = Path(output_dir).expanduser().resolve()
+    if not pdf_path.is_file():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+    if not brief_path.is_file():
+        raise FileNotFoundError(f"Brief not found: {brief_path}")
+    if not TEMPLATE_DIR.is_dir():
+        raise FileNotFoundError(f"Web template assets not found: {TEMPLATE_DIR}")
+
+    brief = json.loads(brief_path.read_text(encoding="utf-8"))
+    profile = brief.get("brand_profile")
+    if profile not in (None, "", BRAND_PROFILE):
+        raise ValueError(f"Unsupported brand_profile: {profile}")
+
+    # This gate intentionally runs before creating or cleaning the output
+    # directory, so a mismatched demo brief cannot leave a half-rendered site.
+    identity = source_binding_for_web(pdf_path, brief_path, brief)
+    declared_pages = brief.get("paper", {}).get("page_count")
+    if declared_pages is not None and declared_pages != identity["pdf_pages"]:
+        raise ValueError(
+            f"paper.page_count is {declared_pages}, but the current --pdf has {identity['pdf_pages']} pages."
+        )
+    if profile == BRAND_PROFILE and pages_dir:
+        raise ValueError(
+            "brand_profile 'bubu-yier-v1' does not accept --pages-dir. "
+            "Pages must be rendered again from the current --pdf to prevent stale-page evidence mix-ups."
+        )
+
+    ensure_output_dir(output_dir, force)
+    generated_pages = False
+    temporary_pages = None
+    try:
+        if pages_dir:
+            pages_dir = Path(pages_dir).expanduser().resolve()
+            if not pages_dir.is_dir():
+                raise FileNotFoundError(f"Pages directory not found: {pages_dir}")
+        else:
+            temporary_pages = tempfile.TemporaryDirectory(prefix="paper-ear-pages-")
+            pages_dir = Path(temporary_pages.name)
+            render_pages(pdf_path, pages_dir, dpi)
+            generated_pages = True
+
+        visuals = crop_visuals(brief, pages_dir, output_dir)
+        shutil.copy2(TEMPLATE_DIR / "styles.css", output_dir / "styles.css")
+        shutil.copy2(TEMPLATE_DIR / "app.js", output_dir / "app.js")
+
+        source_pdf = ""
+        if copy_pdf:
+            shutil.copy2(pdf_path, output_dir / "source.pdf")
+            source_pdf = "source.pdf"
+
+        website_data = dict(brief)
+        website_data["visuals"] = visuals
+        if profile == BRAND_PROFILE:
+            character_assets = copy_brand_character_assets(output_dir)
+            website_data["brand"] = {
+                "profile": BRAND_PROFILE,
+                "cast": {
+                    "yier": {"display_name": "一二", "role": "女主讲 · 讲证据"},
+                    "bubu": {"display_name": "布布", "role": "男追问 · 问边界"},
+                },
+                "notice": "角色导读不是论文证据，不得改写或扩大原文结论。",
+                "assets": character_assets,
+            }
+        else:
+            website_data.pop("brand", None)
+        website_data["render"] = {
+            "source_pdf_included": bool(source_pdf),
+            "dpi": dpi,
+            "generated_pages": generated_pages,
+            "brand_profile": profile or None,
+            "source_binding": identity["binding"],
+            "input_identity": {
+                "pdf_sha256": identity["pdf_sha256"],
+                "pdf_pages": identity["pdf_pages"],
+                "brief_sha256": identity["brief_sha256"],
+                "brief_content_sha256": site_file_record(brief_path)["sha256"],
+            },
+        }
+        (output_dir / "data.json").write_text(
+            json.dumps(website_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        (output_dir / "index.html").write_text(
+            build_html(website_data, visuals, source_pdf), encoding="utf-8"
+        )
+        site_identity = None
+        if profile == BRAND_PROFILE:
+            shutil.copy2(brief_path, output_dir / "source-brief.json")
+            site_identity = write_site_identity(output_dir, identity, profile)
+
+        report = {
+            "ok": True,
+            "source_document": identity["source_document"],
+            "pdf_sha256": identity["pdf_sha256"],
+            "pdf_pages": identity["pdf_pages"],
+            "web_brief": identity["web_brief"],
+            "brief_sha256": identity["brief_sha256"],
+            "source_binding": identity["binding"],
+            "brand_profile": profile or None,
+            "site_identity": site_identity,
+            "output_dir": str(output_dir),
+            "index": str(output_dir / "index.html"),
+            "source_pdf_included": bool(source_pdf),
+            "stats": {
+                "visuals": len(visuals),
+                "figures": sum(1 for item in visuals if item.get("kind") == "figure"),
+                "tables": sum(1 for item in visuals if item.get("kind") == "table"),
+                "equations": sum(1 for item in visuals if item.get("kind") == "equation"),
+                "sections": len(brief.get("sections", [])),
+                "claims": len(brief.get("claims", [])),
+                "brand_character_assets": len(set(BRAND_CHARACTER_ASSETS.values())) if profile == BRAND_PROFILE else 0,
+            },
+        }
+        if report_json:
+            report_path = Path(report_json).expanduser().resolve()
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(
+            f"Rendered web reader: {output_dir / 'index.html'} "
+            f"({len(visuals)} visual(s), {len(brief.get('claims', []))} claim(s))"
+        )
+        return report
+    finally:
+        if temporary_pages is not None:
+            temporary_pages.cleanup()
 
 
 def main():
@@ -480,78 +785,15 @@ def main():
     parser.add_argument("--report-json", help="Optional render report path")
     args = parser.parse_args()
 
-    pdf_path = Path(args.pdf).expanduser().resolve()
-    brief_path = Path(args.brief).expanduser().resolve()
-    output_dir = Path(args.output_dir).expanduser().resolve()
-    if not pdf_path.is_file():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
-    if not brief_path.is_file():
-        raise FileNotFoundError(f"Brief not found: {brief_path}")
-    if not TEMPLATE_DIR.is_dir():
-        raise FileNotFoundError(f"Web template assets not found: {TEMPLATE_DIR}")
-
-    brief = json.loads(brief_path.read_text(encoding="utf-8"))
-    ensure_output_dir(output_dir, args.force)
-    generated_pages = False
-    temporary_pages = None
-    if args.pages_dir:
-        pages_dir = Path(args.pages_dir).expanduser().resolve()
-        if not pages_dir.is_dir():
-            raise FileNotFoundError(f"Pages directory not found: {pages_dir}")
-    else:
-        temporary_pages = tempfile.TemporaryDirectory(prefix="paper-ear-pages-")
-        pages_dir = Path(temporary_pages.name)
-        render_pages(pdf_path, pages_dir, args.dpi)
-        generated_pages = True
-
-    visuals = crop_visuals(brief, pages_dir, output_dir)
-    shutil.copy2(TEMPLATE_DIR / "styles.css", output_dir / "styles.css")
-    shutil.copy2(TEMPLATE_DIR / "app.js", output_dir / "app.js")
-
-    source_pdf = ""
-    if args.copy_pdf:
-        shutil.copy2(pdf_path, output_dir / "source.pdf")
-        source_pdf = "source.pdf"
-
-    website_data = dict(brief)
-    website_data["visuals"] = visuals
-    website_data["render"] = {
-        "source_pdf_included": bool(source_pdf),
-        "dpi": args.dpi,
-        "generated_pages": generated_pages,
-    }
-    (output_dir / "data.json").write_text(
-        json.dumps(website_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    (output_dir / "index.html").write_text(
-        build_html(website_data, visuals, source_pdf), encoding="utf-8"
-    )
-
-    report = {
-        "ok": True,
-        "pdf": str(pdf_path),
-        "brief": str(brief_path),
-        "output_dir": str(output_dir),
-        "index": str(output_dir / "index.html"),
-        "source_pdf_included": bool(source_pdf),
-        "stats": {
-            "visuals": len(visuals),
-            "figures": sum(1 for item in visuals if item.get("kind") == "figure"),
-            "tables": sum(1 for item in visuals if item.get("kind") == "table"),
-            "equations": sum(1 for item in visuals if item.get("kind") == "equation"),
-            "sections": len(brief.get("sections", [])),
-            "claims": len(brief.get("claims", [])),
-        },
-    }
-    if args.report_json:
-        report_path = Path(args.report_json).expanduser().resolve()
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    if temporary_pages is not None:
-        temporary_pages.cleanup()
-    print(
-        f"Rendered web reader: {output_dir / 'index.html'} "
-        f"({len(visuals)} visual(s), {len(brief.get('claims', []))} claim(s))"
+    render_web_reader(
+        args.pdf,
+        args.brief,
+        args.output_dir,
+        pages_dir=args.pages_dir,
+        dpi=args.dpi,
+        copy_pdf=args.copy_pdf,
+        force=args.force,
+        report_json=args.report_json,
     )
     return 0
 

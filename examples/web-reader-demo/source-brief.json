@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "brand_profile": "bubu-yier-v1",
+  "source_document": {
+    "filename": "sample_paper.pdf",
+    "sha256": "d4e308c97e5e127a758b1e75e3da9da1373a55dd2fb632cdbdde82487804c687",
+    "page_count": 2
+  },
+  "paper": {
+    "title": "Sparse-Ear: Dynamic Token Routing for Efficient Long-Context Multimodal Reasoning",
+    "authors": [
+      "Lin Chen",
+      "Alex Zhang",
+      "Y. Hao"
+    ],
+    "venue": "NeurIPS",
+    "year": 2026,
+    "page_count": 2
+  },
+  "reader": {
+    "reading_minutes": 4
+  },
+  "summary": {
+    "one_sentence": "Sparse-Ear 用可微 Soft-Gumbel 路由把少量关键 token 送入重注意力分支、其余 token 交给线性池化分支，以降低长上下文推理开销。",
+    "quick_points": [
+      "问题：128K 长上下文下，全量注意力的二次复杂度和 KV-cache 占用成为瓶颈。",
+      "方法：路由器保留约 25% 的语义锚点做重注意力，其余 token 进入轻量 O(N) 池化分支。",
+      "结果：论文在示例基准上报告 3.4× 推理加速、KV 内存减少 58%，LongBench 准确率比所列基线高 2.1 个百分点。",
+      "边界：两页示例没有报告方差、显著性、更多模型规模或跨任务复现，因此效率—精度结论仍需更广泛验证。"
+    ],
+    "three_minute": "论文从长上下文的计算与显存瓶颈出发，用连续松弛的 Soft-Gumbel 门控替代不可微的硬 Top-K 截断，再把 token 分到 Heavy Attention 与 Light O(N) Pool 两条分支。Figure 1 给出信息流，Equations (1)–(2) 定义路由与融合，Table 1 报告完整模型相对所列 Full FlashAttention-2 基线的内存、速度和准确率结果。该示例能说明方案结构和表内对比，但不足以独立证明跨模型、跨数据集的普适优势。"
+  },
+  "logic_map": [
+    {
+      "stage": "01 · 痛点",
+      "title": "全量注意力撑不起超长上下文",
+      "body": "作者把核心瓶颈归结为 O(N²) 自注意力计算与 KV-cache 内存压力。",
+      "source_anchor": {
+        "page": 1,
+        "kind": "section",
+        "label": "Abstract and Introduction"
+      }
+    },
+    {
+      "stage": "02 · 机制",
+      "title": "让路由保持可微",
+      "body": "Soft-Gumbel 容量门控在训练期保留梯度，并将高显著性 token 路由到重计算分支。",
+      "source_anchor": {
+        "page": 1,
+        "kind": "equation",
+        "label": "Equations (1)–(2)"
+      }
+    },
+    {
+      "stage": "03 · 架构",
+      "title": "重分支抓锚点，轻分支保背景",
+      "body": "双分支把精确 KV 注意力与线性池化组合起来，再融合为输出。",
+      "source_anchor": {
+        "page": 2,
+        "kind": "figure",
+        "label": "Figure 1"
+      }
+    },
+    {
+      "stage": "04 · 验证",
+      "title": "看效率是否换来精度损失",
+      "body": "Table 1 同时比较 KV 内存、加速、LongBench 准确率和梯度流。",
+      "source_anchor": {
+        "page": 2,
+        "kind": "table",
+        "label": "Table 1"
+      }
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim-routing",
+      "title": "路由器不是硬截断",
+      "summary": "论文使用带温度退火的 Soft-Gumbel 门控，使路由器在训练期保持可微。",
+      "evidence": [
+        "Equation (1) 将 Gumbel 扰动、线性路由得分与温度 tau 放入 Sigmoid。",
+        "正文说明 tau 逐步退火并趋近 0.1。"
+      ],
+      "why_it_matters": "如果路由器无法获得梯度，分支选择就不能随任务端到端学习。",
+      "claim_type": "paper_evidence",
+      "evidence_strength": "strong",
+      "source_anchor": {
+        "page": 1,
+        "kind": "equation",
+        "label": "Equation (1)"
+      }
+    },
+    {
+      "id": "claim-architecture",
+      "title": "计算被拆成两条互补路径",
+      "summary": "约 25% 的锚点进入 Heavy Attention，其余信息由线性池化路径压缩并保留。",
+      "evidence": [
+        "Figure 1 标出 Heavy Attention 的 Exact KV Cache (25%)。",
+        "同一图中 Light O(N) Pool 接收压缩 token，并与重分支在输出端融合。"
+      ],
+      "why_it_matters": "节省来自计算分配，而不是简单丢掉全部低分 token。",
+      "claim_type": "paper_evidence",
+      "evidence_strength": "strong",
+      "source_anchor": {
+        "page": 2,
+        "kind": "figure",
+        "label": "Figure 1"
+      }
+    },
+    {
+      "id": "claim-result",
+      "title": "完整模型在表内同时改善速度、内存与准确率",
+      "summary": "Table 1 报告完整 Sparse-Ear 的 KV 内存为基线的 42%、加速 3.4×、LongBench 准确率 76.3%。",
+      "evidence": [
+        "Full FlashAttention-2 行为 100.0% KV memory、1.0×、74.2%。",
+        "Sparse-Ear 完整模型行为 42.0% (-58%)、3.4×、76.3% (+2.1)。"
+      ],
+      "why_it_matters": "表内结果显示该效率增益没有以该项准确率下降为代价。",
+      "claim_type": "paper_evidence",
+      "evidence_strength": "strong",
+      "source_anchor": {
+        "page": 2,
+        "kind": "table",
+        "label": "Table 1"
+      }
+    },
+    {
+      "id": "claim-generality",
+      "title": "普适性仍是待验证问题",
+      "summary": "当前两页示例未展示多次运行误差、统计检验或更广泛的模型与任务覆盖。",
+      "evidence": [
+        "Table 1 只呈现单组汇总值，没有方差或置信区间。",
+        "页面中未列出训练成本、路由稳定性或不同 token 预算的敏感性。"
+      ],
+      "why_it_matters": "表内优势不能自动外推到其它模型规模、硬件或长上下文任务。",
+      "claim_type": "critique",
+      "evidence_strength": "tentative",
+      "source_anchor": {
+        "page": 2,
+        "kind": "page",
+        "label": "Experimental Results page"
+      }
+    }
+  ],
+  "inventory": {
+    "status": "complete",
+    "declared_regions": {
+      "figure": 1,
+      "table": 1,
+      "equation": 1
+    }
+  },
+  "visuals": [
+    {
+      "id": "eq-1-2",
+      "kind": "equation",
+      "page": 1,
+      "bbox_norm": [
+        0.1,
+        0.68,
+        0.9,
+        0.82
+      ],
+      "label": "Equations (1)–(2)",
+      "caption": "Equation (1) 定义 Soft-Gumbel 路由门，Equation (2) 融合重注意力和轻量池化两条分支。",
+      "alt": "两行带边框的公式：第一行由路由得分、Gumbel 噪声和温度 tau 计算门值；第二行以门值加权 Heavy Attention 与 Light Pool 输出。",
+      "why_it_matters": "这两式把“训练时可微”和“推理时稀疏”连接到同一个路由机制。",
+      "source_anchor": {
+        "page": 1,
+        "kind": "equation",
+        "label": "Equations (1)–(2)"
+      }
+    },
+    {
+      "id": "fig-1",
+      "kind": "figure",
+      "page": 2,
+      "bbox_norm": [
+        0.08,
+        0.06,
+        0.92,
+        0.42
+      ],
+      "label": "Figure 1",
+      "caption": "输入 token 经过 Soft-Gumbel Router 后分流到 Heavy Attention 与 Light O(N) Pool，最后融合输出。",
+      "alt": "从左到右的双分支架构图：Input Tokens 进入黄色路由器，上方红色 Heavy Attention 与下方绿色 Light Pool 并行，右侧汇合为输出。",
+      "why_it_matters": "图把效率收益的来源具体化为不同 token 的差异化计算预算。",
+      "source_anchor": {
+        "page": 2,
+        "kind": "figure",
+        "label": "Figure 1"
+      }
+    },
+    {
+      "id": "table-1",
+      "kind": "table",
+      "page": 2,
+      "bbox_norm": [
+        0.08,
+        0.49,
+        0.93,
+        0.74
+      ],
+      "label": "Table 1",
+      "caption": "五种架构在 128K 上下文推理中的 KV 内存、加速、LongBench 准确率与梯度流对比。",
+      "alt": "五行对比表。完整 Sparse-Ear 行以红色突出，显示 42.0% KV memory、3.4× speedup、76.3% LongBench accuracy 和 differentiable gradient flow。",
+      "why_it_matters": "这张表承载论文最强的效率—准确率联合证据，也暴露出未给出不确定性区间的局限。",
+      "source_anchor": {
+        "page": 2,
+        "kind": "table",
+        "label": "Table 1"
+      }
+    }
+  ],
+  "excluded_visuals": [],
+  "sections": [
+    {
+      "id": "problem",
+      "nav_title": "研究问题",
+      "title": "为什么不是再做一个硬 Top-K",
+      "lede": "论文认为，真正的问题不仅是要少算，还要让“选谁来算”能够学习。",
+      "body": [
+        "全量自注意力随序列长度呈二次增长，128K 级上下文会同时放大计算量与 KV-cache 内存。已有硬 Top-K 路由虽然能丢弃 token，却可能让被截断路径的梯度归零。",
+        "Sparse-Ear 因而把目标设为：保留少量对跨段推理关键的语义锚点，同时让背景 token 继续通过低成本路径贡献上下文。"
+      ],
+      "takeaways": [
+        "目标不是单纯剪枝，而是学习一套可训练的计算分配。",
+        "轻分支的存在是防止背景信息被完全抛弃。"
+      ],
+      "source_anchors": [
+        {
+          "page": 1,
+          "kind": "section",
+          "label": "Introduction & Core Contributions"
+        }
+      ],
+      "visual_ids": []
+    },
+    {
+      "id": "method",
+      "nav_title": "方法机制",
+      "title": "Soft-Gumbel 门控如何连接训练与推理",
+      "lede": "连续松弛让路由分数在训练期可优化，温度退火则让选择逐步变得稀疏。",
+      "body": [
+        "Equation (1) 用 Sigmoid 将线性路由得分、Gumbel 噪声和温度 tau 组合为门值 g_i。正文写明 tau 退火到 0.1，使软选择逐步靠近离散选择。",
+        "Equation (2) 用 g_i 加权 Heavy Attention，以 1-g_i 加权 Light Pool。这个表达直接对应 Figure 1 的上、下两条路径。"
+      ],
+      "takeaways": [
+        "可微性是相对硬 Top-K 的核心方法差异。",
+        "公式与架构图相互校验：门值决定两条分支的贡献。"
+      ],
+      "source_anchors": [
+        {
+          "page": 1,
+          "kind": "equation",
+          "label": "Equations (1)–(2)"
+        },
+        {
+          "page": 2,
+          "kind": "figure",
+          "label": "Figure 1"
+        }
+      ],
+      "visual_ids": [
+        "eq-1-2",
+        "fig-1"
+      ]
+    },
+    {
+      "id": "results",
+      "nav_title": "结果与边界",
+      "title": "表内胜出，不等于已经证明普适性",
+      "lede": "结果最吸引人，但也最需要把“论文报告”与“我们能推出什么”分开。",
+      "body": [
+        "Table 1 中，完整 Sparse-Ear 相对 Full FlashAttention-2 把 KV 内存从 100% 降到 42%，加速从 1.0× 提到 3.4×，LongBench 准确率从 74.2% 提到 76.3%。去掉 Soft-Gumbel Gate 的变体为 73.9%，为门控的作用提供了表内消融证据。",
+        "但页面未报告重复实验、误差线或显著性，也没有展示不同硬件、模型规模和 token 预算下的结果。因此更稳妥的表述是“在所列设置中观察到联合收益”，而不是“已证明对所有长上下文任务都更好”。"
+      ],
+      "takeaways": [
+        "最强直接证据是 Table 1 的同表对照。",
+        "没有不确定性与更广覆盖时，外推必须保守。"
+      ],
+      "source_anchors": [
+        {
+          "page": 2,
+          "kind": "table",
+          "label": "Table 1"
+        }
+      ],
+      "visual_ids": [
+        "table-1"
+      ]
+    }
+  ],
+  "limitations": [
+    {
+      "title": "缺少结果不确定性",
+      "body": "Table 1 没有方差、置信区间或多次运行信息，无法从页面判断 2.1 个百分点的差异是否稳定。",
+      "claim_type": "critique",
+      "source_anchor": {
+        "page": 2,
+        "kind": "table",
+        "label": "Table 1"
+      }
+    },
+    {
+      "title": "覆盖范围有限",
+      "body": "示例只给出两项长上下文基准的汇总说明，未展示跨模型规模、不同稀疏预算或更多硬件的稳健性。",
+      "claim_type": "critique",
+      "source_anchor": {
+        "page": 2,
+        "kind": "section",
+        "label": "Experimental Results & Ablation Study"
+      }
+    }
+  ],
+  "questions": [
+    "25% 锚点预算是预先固定，还是根据样本与层动态变化？",
+    "如果把硬件、batch size 与上下文长度分开控制，3.4× 加速是否仍然稳定？",
+    "完整模型相对无 Soft-Gumbel 变体的准确率差异，在多次运行后是否显著？"
+  ],
+  "glossary": [
+    {
+      "term": "KV-cache",
+      "definition": "自回归注意力复用历史 Key/Value 的缓存；上下文变长时会显著占用显存。"
+    },
+    {
+      "term": "Soft-Gumbel Capacity Gate",
+      "definition": "用 Gumbel 扰动和温度控制形成连续门值，使训练阶段的路由选择保持可微。"
+    },
+    {
+      "term": "Heavy Attention",
+      "definition": "仅对被选中的高显著性锚点保留精确 KV-cache 的高成本注意力路径。"
+    }
+  ]
+}

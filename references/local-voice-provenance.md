@@ -12,6 +12,7 @@ Snapshot date: 2026-10-14. Repository stars are discovery signals, not voice-qua
 | [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) | Apache-2.0 | Strong voice design and instruction control, but the surveyed local path is heavier and GPU-oriented; not the lightweight default. |
 | [CosyVoice](https://github.com/FunAudioLLM/CosyVoice) | Apache-2.0 | Strong Chinese and instruction-guided speech, but substantially heavier; not the lightweight default. |
 | [MOSS-TTS](https://github.com/OpenMOSS/MOSS-TTS) | Apache-2.0 | Optional expressive local tier. The tested catalog was roughly 8.5–12.5 GB, with additional voice-design weights possible. |
+| [F5-TTS](https://github.com/SWivid/F5-TTS) + [BoxAudio-0](https://github.com/Boxjod/box2audio-0) | F5TTS v1 Base: CC-BY-NC-4.0; BoxAudio-0 repository: MIT | Optional `bubu-yier-local` character cast. Keep weights/references outside the repository, verify the pinned reference hashes, and do not infer commercial character/voice rights from public availability. |
 
 ## Default Mandarin tier
 
@@ -52,6 +53,7 @@ Use MOSS or Azure as an explicit quality upgrade when the user needs stronger ac
 
 - Keep model weights in the user's system cache; never commit them.
 - On `kokoro-zh-local`, synthesis happens in process and no narration text is uploaded.
+- On `bubu-yier-local`, F5-TTS runs in process and receives only each turn's final `spoken_text` plus local controls. See [bubu-yier-local-backend.md](bubu-yier-local-backend.md) for setup, hashes, and licensing limits.
 - On a loopback Lemonade model, send only the final narration string plus voice controls. Do not send the PDF, page images, extracted full text, visual crops, local paths, or credentials.
 - Reject non-loopback Lemonade endpoints unless the user explicitly enables `PAPER_EAR_ALLOW_REMOTE_LEMONADE=1` after approving that privacy boundary.
 - Do not bundle downloaded weights into the MIT Paper-Ear repository. Link to upstream sources and preserve their licenses independently.

@@ -10,6 +10,17 @@ import shutil
 import sys
 from pathlib import Path
 
+from bubu_yier_voice import (
+    BUBU_YIER_BACKEND,
+    BUBU_YIER_DEFAULT_VOICES,
+    BUBU_YIER_MODEL,
+    BUBU_YIER_REFERENCE_SPECS,
+    resolve_f5_options,
+    resolve_reference,
+)
+from character_library import CharacterLibrary, CharacterLibraryError
+from document_binding import collect_input_identity, validate_document_binding
+
 
 CLAIM_TYPES = {"paper_evidence", "author_claim", "inference", "critique"}
 ANCHOR_KINDS = {"section", "figure", "table", "equation", "appendix", "page"}
@@ -24,7 +35,14 @@ INTERACTION_TAGS = {
     "reverse_question",
     "unresolved",
 }
-VOICE_BACKENDS = {"edge-tts", "azure-speech", "kokoro-zh-local", "lemonade-local"}
+VOICE_BACKENDS = {
+    "edge-tts",
+    "azure-speech",
+    "kokoro-zh-local",
+    "lemonade-local",
+    BUBU_YIER_BACKEND,
+}
+BUBU_YIER_BRAND_PROFILE = "bubu-yier-v1"
 KOKORO_ZH_MODEL = "kokoro-v1.1-zh"
 KOKORO_ZH_VOICES = {
     "zf_001", "zf_018", "zf_046", "zf_090",
@@ -47,12 +65,17 @@ AZURE_VOICE_STYLES = {
     "zh-CN-YunyangNeural": {"customerservice", "narration-professional", "newscast-casual"},
 }
 REQUIRED_TOOLS = ("ffmpeg", "ffprobe", "pdftoppm")
-RENDER_MODULES = {
+CORE_RENDER_MODULES = {
     "PIL": "Pillow",
     "numpy": "numpy",
-    "edge_tts": "edge-tts",
-    "kokoro_onnx": "kokoro-onnx",
-    "misaki": "misaki-fork[zh]",
+    "pdfplumber": "pdfplumber",
+}
+BACKEND_RENDER_MODULES = {
+    "edge-tts": {"edge_tts": "edge-tts"},
+    "azure-speech": {},
+    "kokoro-zh-local": {"kokoro_onnx": "kokoro-onnx", "misaki": "misaki-fork[zh]"},
+    "lemonade-local": {"soundfile": "soundfile"},
+    BUBU_YIER_BACKEND: {"f5_tts": "f5-tts", "soundfile": "soundfile"},
 }
 
 
@@ -76,6 +99,54 @@ def validate_kokoro_zh_runtime(profile, errors, speaker):
                 "missing_mandarin_model_file",
                 f"{speaker} profile is missing {kind} file '{path}'. Run scripts/setup_mandarin_voice.py.",
             )
+
+
+def validate_bubu_yier_runtime(profile, errors, speaker, require_pinned=False):
+    """Validate external references/model configuration without loading F5-TTS."""
+    resolved = dict(profile) if isinstance(profile, dict) else {}
+    resolved.setdefault("voice", BUBU_YIER_DEFAULT_VOICES[speaker])
+    voice = str(resolved.get("voice") or "").strip().lower()
+    if voice not in BUBU_YIER_REFERENCE_SPECS:
+        add_issue(
+            errors,
+            "invalid_bubu_yier_voice",
+            f"{speaker} voice must be one of {sorted(BUBU_YIER_REFERENCE_SPECS)}; got '{voice}'.",
+        )
+        return
+    try:
+        reference = resolve_reference(resolved)
+        if require_pinned:
+            expected_voice = BUBU_YIER_DEFAULT_VOICES[speaker]
+            expected = BUBU_YIER_REFERENCE_SPECS[expected_voice]
+            if reference.get("sha256") != expected["sha256"]:
+                add_issue(
+                    errors,
+                    "brand_reference_hash",
+                    f"{speaker} reference must match the pinned {expected_voice} SHA-256 "
+                    f"{expected['sha256']}.",
+                )
+            if reference.get("reference_text") != expected["reference_text"]:
+                add_issue(
+                    errors,
+                    "brand_reference_text",
+                    f"{speaker} reference_text must match the pinned {expected_voice} transcript.",
+                )
+    except RuntimeError as exc:
+        add_issue(errors, "invalid_bubu_yier_reference", f"{speaker} profile: {exc}")
+    try:
+        resolve_f5_options(resolved)
+    except RuntimeError as exc:
+        add_issue(errors, "invalid_bubu_yier_model_config", f"{speaker} profile: {exc}")
+    dependency_already_reported = any(
+        issue.get("code") == "missing_python_dependency" and "f5-tts" in issue.get("message", "")
+        for issue in errors
+    )
+    if importlib.util.find_spec("f5_tts") is None and not dependency_already_reported:
+        add_issue(
+            errors,
+            "missing_python_dependency",
+            "Python package 'f5-tts' is required by bubu-yier-local; install requirements-bubu-yier.txt.",
+        )
 
 
 def add_issue(items, code, message, turn=None):
@@ -115,9 +186,11 @@ def validate_tools(errors):
     return missing
 
 
-def validate_python_dependencies(errors):
+def validate_python_dependencies(errors, backend=None):
     missing = []
-    for module, package in RENDER_MODULES.items():
+    modules = dict(CORE_RENDER_MODULES)
+    modules.update(BACKEND_RENDER_MODULES.get(backend, {}))
+    for module, package in modules.items():
         if importlib.util.find_spec(module) is None:
             missing.append(package)
             add_issue(
@@ -265,7 +338,64 @@ def validate_interaction_quality(turns, errors):
     return stats
 
 
-def validate_script(script_path, page_count, strict, errors, warnings):
+def validate_bubu_yier_addressing(turns, errors, require_bidirectional=False):
+    """Validate role-correct, occasional forms of address in final spoken text."""
+    records = []
+    for index, turn in enumerate(turns, start=1):
+        if not isinstance(turn, dict):
+            continue
+        speaker = str(turn.get("speaker") or "").strip().lower()
+        text = turn.get("spoken_text") or turn.get("zh_text") or ""
+        text = text if isinstance(text, str) else ""
+        records.append((index, speaker, text))
+        if speaker == "female" and "一二宝" in text:
+            add_issue(
+                errors,
+                "brand_address_female_self_name",
+                "一二（female）不得用‘一二宝’称呼对方；对布布可用‘布布/臭布布/香布布’。",
+                index,
+            )
+        if speaker == "male" and any(nickname in text for nickname in ("臭布布", "香布布")):
+            add_issue(
+                errors,
+                "brand_address_male_self_name",
+                "布布（male）不得用‘臭布布/香布布’称呼对方；对一二应使用‘一二宝’。",
+                index,
+            )
+
+    for nickname in ("一二宝", "臭布布", "香布布"):
+        count = sum(text.count(nickname) for _, _, text in records)
+        if count > 1:
+            add_issue(
+                errors,
+                "brand_nickname_frequency",
+                f"特殊昵称‘{nickname}’出现 {count} 次；每种特殊昵称最多自然出现一次。",
+            )
+
+    male_addresses = sum(speaker == "male" and "一二宝" in text for _, speaker, text in records)
+    female_addresses = sum(
+        speaker == "female" and any(name in text for name in ("布布", "臭布布", "香布布"))
+        for _, speaker, text in records
+    )
+    if require_bidirectional and not male_addresses:
+        add_issue(
+            errors,
+            "brand_address_missing_male_to_female",
+            "完整 15–20 轮品牌对话至少需要布布自然称呼一次‘一二宝’。",
+        )
+    if require_bidirectional and not female_addresses:
+        add_issue(
+            errors,
+            "brand_address_missing_female_to_male",
+            "完整 15–20 轮品牌对话至少需要一二自然称呼一次‘布布/臭布布/香布布’。",
+        )
+    return {
+        "male_to_female": male_addresses,
+        "female_to_male": female_addresses,
+    }
+
+
+def validate_script(script_path, page_count, strict, errors, warnings, pdf_identity=None):
     try:
         data = json.loads(script_path.read_text(encoding="utf-8"))
     except UnicodeDecodeError as exc:
@@ -282,14 +412,54 @@ def validate_script(script_path, page_count, strict, errors, warnings):
     if not nonempty_string(data.get("title")):
         add_issue(errors, "missing_title", "Root field 'title' must be a non-empty string.")
 
+    brand_profile = str(data.get("brand_profile") or "").strip().lower()
+    branded = brand_profile == BUBU_YIER_BRAND_PROFILE
+    if brand_profile and not branded:
+        add_issue(errors, "invalid_brand_profile", f"Unsupported brand_profile '{brand_profile}'.")
+
+    if pdf_identity is not None:
+        binding = validate_document_binding(
+            data,
+            pdf_identity,
+            script_path,
+            require_source_document=branded,
+        )
+        for issue in binding["issues"]:
+            add_issue(errors, issue["code"], issue["message"])
+    elif branded:
+        add_issue(
+            errors,
+            "document_binding_unchecked",
+            "bubu-yier-v1 requires the current PDF identity before its source_document binding can be validated.",
+        )
+
     for field in ("male_name", "female_name"):
         if not nonempty_string(data.get(field)):
             target = errors if strict else warnings
             add_issue(target, f"missing_{field}", f"Root field '{field}' is required in strict mode.")
 
+    if branded:
+        if nonempty_string(data.get("female_name")) and not data["female_name"].strip().startswith("一二"):
+            add_issue(errors, "brand_female_cast", "bubu-yier-v1 requires female_name to start with 一二.")
+        if nonempty_string(data.get("male_name")) and not data["male_name"].strip().startswith("布布"):
+            add_issue(errors, "brand_male_cast", "bubu-yier-v1 requires male_name to start with 布布.")
+
     backend = str(data.get("voice_backend") or "edge-tts").lower()
     if backend not in VOICE_BACKENDS:
         add_issue(errors, "invalid_voice_backend", f"voice_backend must be one of {sorted(VOICE_BACKENDS)}.")
+    if branded and backend != BUBU_YIER_BACKEND:
+        add_issue(
+            errors,
+            "brand_voice_backend",
+            f"bubu-yier-v1 requires voice_backend '{BUBU_YIER_BACKEND}'.",
+        )
+
+    character_library = None
+    if branded:
+        try:
+            character_library = CharacterLibrary.from_file()
+        except CharacterLibraryError as exc:
+            add_issue(errors, "character_manifest", str(exc))
 
     profiles = data.get("voice_profiles")
     if profiles is not None and not isinstance(profiles, dict):
@@ -301,6 +471,8 @@ def validate_script(script_path, page_count, strict, errors, warnings):
         profile = profiles.get(speaker)
         legacy_voice = data.get(f"{speaker}_voice")
         voice = profile.get("voice") if isinstance(profile, dict) else legacy_voice
+        if backend == BUBU_YIER_BACKEND and not nonempty_string(voice):
+            voice = BUBU_YIER_DEFAULT_VOICES[speaker]
         voice_by_speaker[speaker] = voice
         if not nonempty_string(voice):
             target = errors if strict else warnings
@@ -333,6 +505,17 @@ def validate_script(script_path, page_count, strict, errors, warnings):
                     "Legacy Lemonade/Kokoro v1.0 Mandarin failed the intelligibility gate. "
                     "Use voice_backend 'kokoro-zh-local' with model 'kokoro-v1.1-zh'.",
                 )
+        if backend == BUBU_YIER_BACKEND:
+            resolved_profile = dict(profile) if isinstance(profile, dict) else {}
+            resolved_profile["voice"] = voice
+            resolved_profile["model"] = resolved_profile.get("model") or data.get("voice_model") or BUBU_YIER_MODEL
+            validate_bubu_yier_runtime(resolved_profile, errors, speaker, require_pinned=branded)
+            if branded and voice != BUBU_YIER_DEFAULT_VOICES[speaker]:
+                add_issue(
+                    errors,
+                    f"brand_{speaker}_voice",
+                    f"bubu-yier-v1 requires {speaker} voice '{BUBU_YIER_DEFAULT_VOICES[speaker]}'.",
+                )
 
     interaction_v2 = data.get("interaction_mode") == "evidence-dialogue-v2"
 
@@ -340,6 +523,13 @@ def validate_script(script_path, page_count, strict, errors, warnings):
     if not isinstance(turns, list) or not turns:
         add_issue(errors, "missing_turns", "Root field 'turns' must be a non-empty array.")
         return data, 0, {}
+
+    if branded:
+        validate_bubu_yier_addressing(
+            turns,
+            errors,
+            require_bidirectional=bool(strict and 15 <= len(turns) <= 20),
+        )
 
     for index, turn in enumerate(turns, start=1):
         if not isinstance(turn, dict):
@@ -355,6 +545,28 @@ def validate_script(script_path, page_count, strict, errors, warnings):
         speaker = turn.get("speaker")
         if not isinstance(speaker, str) or speaker.lower() not in {"female", "male"}:
             add_issue(errors, "invalid_speaker", "speaker must be 'female' or 'male'.", index)
+        elif character_library is not None:
+            try:
+                pose_info = character_library.select_pose(speaker.lower(), turn)
+                if not pose_info.get("asset_available"):
+                    add_issue(
+                        errors,
+                        "missing_character_asset",
+                        f"No renderable PNG is available for pose '{pose_info.get('id')}'.",
+                        index,
+                    )
+                elif pose_info.get("used_fallback"):
+                    add_issue(
+                        warnings,
+                        "character_asset_fallback",
+                        f"Requested pose '{pose_info.get('requested_pose_id')}' falls back to '{pose_info.get('id')}'.",
+                        index,
+                    )
+            except CharacterLibraryError as exc:
+                add_issue(errors, "invalid_character_pose", str(exc), index)
+
+        if "character_caption" in turn and not nonempty_string(turn.get("character_caption")):
+            add_issue(errors, "invalid_character_caption", "character_caption must be non-empty text.", index)
 
         if interaction_v2:
             dialogue_act = turn.get("dialogue_act")
@@ -460,14 +672,26 @@ def main():
         page_count = load_pdf_page_count(pdf_path, errors)
 
     missing_tools = validate_tools(errors)
-    missing_python_dependencies = validate_python_dependencies(errors)
     turn_count = 0
     interaction_stats = {}
+    script_data = {}
     if script_path is not None:
         if not script_path.is_file():
             add_issue(errors, "missing_script", f"Dialogue script does not exist: {script_path}")
         else:
-            _, turn_count, interaction_stats = validate_script(script_path, page_count, args.strict, errors, warnings)
+            pdf_identity = None
+            if pdf_path.is_file() and page_count > 0:
+                pdf_identity = collect_input_identity(pdf_path, script_path, page_count)
+            script_data, turn_count, interaction_stats = validate_script(
+                script_path,
+                page_count,
+                args.strict,
+                errors,
+                warnings,
+                pdf_identity=pdf_identity,
+            )
+    active_backend = str(script_data.get("voice_backend") or "").lower() or None
+    missing_python_dependencies = validate_python_dependencies(errors, active_backend)
 
     report = {
         "ok": not errors,
@@ -484,6 +708,8 @@ def main():
         "errors": errors,
         "warnings": warnings,
     }
+    if script_path is not None and script_path.is_file() and pdf_path.is_file() and page_count > 0:
+        report["input_identity"] = collect_input_identity(pdf_path, script_path, page_count)
 
     if args.json_out:
         out_path = Path(args.json_out).expanduser().resolve()

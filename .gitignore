@@ -9,6 +9,12 @@ voice_casting.json
 voice-menu/
 voice-audition/
 
+# Keep local TTS references and model weights outside the repository.
+reference-audio/
+local-models/
+*.safetensors
+*.ckpt
+
 # Never commit user-supplied or local test papers.
 private-inputs/
 user-papers/

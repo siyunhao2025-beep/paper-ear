@@ -54,6 +54,22 @@ Use this after strict JSON validation and deterministic website verification.
       hidden API calls.
 - [ ] Source-paper links and DOI links are ordinary user-initiated links only.
 
+## 一二 × 布布主题检查
+
+- [ ] `source_document.filename`、`sha256` 与 `page_count` 来自本次真实 PDF，
+      且 brief 校验、渲染报告与站点 `site-identity.json` 均为 `verified`。
+- [ ] 品牌运行未使用 `--pages-dir`；所有页图都由当前 `--pdf` 重新渲染，
+      不存在上一份论文的缓存 PNG。
+- [ ] Hero 与陪伴栏都同时显示一二和布布：一二为白色棕耳女主讲，布布为
+      棕色男追问，页面明确写出“一二讲证据、布布问边界”。
+- [ ] 角色 PNG 只来自站点自己的 `assets/characters/`，断网后仍能显示；
+      `source.pdf`、`source-brief.json` 与全部站点文件的哈希复核通过。
+- [ ] `site-identity.json` 使用 schema v2：算法为 `sha256`，可识别 UTF-8
+      文本使用 `utf8-lf-v1`，二进制使用 `raw-bytes-v1`；LF/CRLF 的 Git
+      checkout 差异可通过，但真实文本改动或任一二进制字节变化必须失败。
+- [ ] 角色只作导读，不覆盖正文或视觉证据，也不把动作说明当成论文主张；
+      390 px 下陪伴栏回到正常文档流，不悬浮遮挡图表。
+
 ## Browser inspection
 
 - [ ] A headless Chromium run reaches network idle with no uncaught JavaScript errors.

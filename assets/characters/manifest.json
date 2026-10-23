@@ -1,0 +1,375 @@
+{
+  "schema_version": "1.0",
+  "variant": "bubu-yier-v1",
+  "notice_zh": "布布一二二创角色动作库；不是官方配音、官方动作或官方授权声明。",
+  "speaker_map": {
+    "female": "yier",
+    "male": "bubu"
+  },
+  "neutral_pose": {
+    "yier": "yier_neutral_intro",
+    "bubu": "bubu_neutral_listen"
+  },
+  "poses": [
+    {
+      "id": "yier_neutral_intro",
+      "character": "yier",
+      "emotion_zh": "自然开心",
+      "action_zh": "面向观众站立，微笑挥手",
+      "caption_zh": "开讲啦！",
+      "asset": "yier_neutral_intro.png",
+      "triggers": {"dialogue_act": [], "emotion": ["neutral"], "tags": []}
+    },
+    {
+      "id": "yier_catchphrase_dash",
+      "character": "yier",
+      "emotion_zh": "元气入场",
+      "action_zh": "小跑入场，双手左右摆动",
+      "caption_zh": "啊哒哒～",
+      "asset": "yier_catchphrase_dash.png",
+      "triggers": {"dialogue_act": ["claim"], "emotion": ["excited"], "tags": []}
+    },
+    {
+      "id": "yier_happy_solution",
+      "character": "yier",
+      "emotion_zh": "开心",
+      "action_zh": "双手举起，身体轻轻跃起",
+      "caption_zh": "解出来了！",
+      "asset": "yier_happy_solution.png",
+      "triggers": {"dialogue_act": ["evidence_answer"], "emotion": ["excited"], "tags": []}
+    },
+    {
+      "id": "yier_calm_explain",
+      "character": "yier",
+      "emotion_zh": "从容",
+      "action_zh": "一手指向图表，一手摊开讲解",
+      "caption_zh": "我们一步一步看。",
+      "asset": "yier_calm_explain.png",
+      "triggers": {"dialogue_act": ["claim", "evidence_answer"], "emotion": ["neutral", "reflective"], "tags": []}
+    },
+    {
+      "id": "yier_curious_tilt",
+      "character": "yier",
+      "emotion_zh": "好奇",
+      "action_zh": "歪头前倾，头顶浮现问号",
+      "caption_zh": "咦，为什么呢？",
+      "asset": "yier_curious_tilt.png",
+      "triggers": {"dialogue_act": ["challenge", "followup"], "emotion": ["curious"], "tags": ["question"]}
+    },
+    {
+      "id": "yier_eyes_sparkle",
+      "character": "yier",
+      "emotion_zh": "两眼放光",
+      "action_zh": "星星眼前倾，双手贴近脸颊",
+      "caption_zh": "这个结果太亮眼了！",
+      "asset": "yier_eyes_sparkle.png",
+      "triggers": {"dialogue_act": ["evidence_answer"], "emotion": ["surprised", "excited"], "tags": ["surprise"]}
+    },
+    {
+      "id": "yier_serious_focus",
+      "character": "yier",
+      "emotion_zh": "认真",
+      "action_zh": "凝神指向关键条件",
+      "caption_zh": "注意这个条件。",
+      "asset": "yier_serious_focus.png",
+      "triggers": {"dialogue_act": ["claim"], "emotion": ["serious"], "tags": []}
+    },
+    {
+      "id": "yier_evidence_point",
+      "character": "yier",
+      "emotion_zh": "笃定",
+      "action_zh": "用教鞭指向论文红框证据",
+      "caption_zh": "证据在这里。",
+      "asset": "yier_evidence_point.png",
+      "triggers": {"dialogue_act": ["evidence_answer"], "emotion": ["serious", "neutral"], "tags": []}
+    },
+    {
+      "id": "yier_self_correct",
+      "character": "yier",
+      "emotion_zh": "谨慎修正",
+      "action_zh": "挠头并冒出一滴汗，另一手改正笔记",
+      "caption_zh": "等等，我修正一下。",
+      "asset": "yier_self_correct.png",
+      "triggers": {"dialogue_act": ["concession"], "emotion": ["reflective"], "tags": ["self_correction"]}
+    },
+    {
+      "id": "yier_surprised_reveal",
+      "character": "yier",
+      "emotion_zh": "恍然大悟",
+      "action_zh": "双手张开，头顶出现感叹号",
+      "caption_zh": "原来如此！",
+      "asset": "yier_surprised_reveal.png",
+      "triggers": {"dialogue_act": ["synthesis"], "emotion": ["surprised"], "tags": ["surprise"]}
+    },
+    {
+      "id": "yier_skeptical_narrow",
+      "character": "yier",
+      "emotion_zh": "审慎怀疑",
+      "action_zh": "抱臂半眯眼，审视结论边界",
+      "caption_zh": "这个结论要收窄。",
+      "asset": "yier_skeptical_narrow.png",
+      "triggers": {"dialogue_act": ["challenge", "synthesis"], "emotion": ["skeptical"], "tags": ["disagreement"]}
+    },
+    {
+      "id": "yier_thinking",
+      "character": "yier",
+      "emotion_zh": "思考",
+      "action_zh": "托腮看向公式，身边浮现省略号",
+      "caption_zh": "让我想一想。",
+      "asset": "yier_thinking.png",
+      "triggers": {"dialogue_act": ["followup"], "emotion": ["reflective"], "tags": []}
+    },
+    {
+      "id": "yier_excited_discovery",
+      "character": "yier",
+      "emotion_zh": "兴奋发现",
+      "action_zh": "跃起并指向刚发现的关键关系",
+      "caption_zh": "发现关键了！",
+      "asset": "yier_excited_discovery.png",
+      "triggers": {"dialogue_act": ["synthesis"], "emotion": ["excited"], "tags": ["surprise"]}
+    },
+    {
+      "id": "yier_confident_summary",
+      "character": "yier",
+      "emotion_zh": "自信总结",
+      "action_zh": "叉腰点头，旁边出现勾号",
+      "caption_zh": "结论很清楚。",
+      "asset": "yier_confident_summary.png",
+      "triggers": {"dialogue_act": ["synthesis"], "emotion": ["neutral", "serious"], "tags": []}
+    },
+    {
+      "id": "yier_gentle_reassure",
+      "character": "yier",
+      "emotion_zh": "温柔安慰",
+      "action_zh": "双手合在胸前，微笑安抚",
+      "caption_zh": "别急，慢慢来。",
+      "asset": "yier_gentle_reassure.png",
+      "triggers": {"dialogue_act": ["evidence_answer"], "emotion": ["reflective"], "tags": []}
+    },
+    {
+      "id": "yier_number_check",
+      "character": "yier",
+      "emotion_zh": "严谨核数",
+      "action_zh": "拿着计算纸与小计算器复核数字",
+      "caption_zh": "数字再核一遍。",
+      "asset": "yier_number_check.png",
+      "triggers": {"dialogue_act": ["evidence_answer", "claim"], "emotion": ["serious"], "tags": ["self_correction"]}
+    },
+    {
+      "id": "yier_term_define",
+      "character": "yier",
+      "emotion_zh": "清晰定义",
+      "action_zh": "举起术语卡片并指向定义",
+      "caption_zh": "先定义这个术语。",
+      "asset": "yier_term_define.png",
+      "triggers": {"dialogue_act": ["claim"], "emotion": ["reflective"], "tags": []}
+    },
+    {
+      "id": "yier_limitation_warn",
+      "character": "yier",
+      "emotion_zh": "提醒限制",
+      "action_zh": "举起小警示牌，另一手圈出适用边界",
+      "caption_zh": "这里有个限制。",
+      "asset": "yier_limitation_warn.png",
+      "triggers": {"dialogue_act": ["challenge", "synthesis"], "emotion": ["serious"], "tags": ["unresolved"]}
+    },
+    {
+      "id": "yier_reverse_question",
+      "character": "yier",
+      "emotion_zh": "反向追问",
+      "action_zh": "转身向布布伸手发问",
+      "caption_zh": "布布，你怎么看？",
+      "asset": "yier_reverse_question.png",
+      "triggers": {"dialogue_act": ["followup"], "emotion": ["curious"], "tags": ["reverse_question"]}
+    },
+    {
+      "id": "yier_closing_celebrate",
+      "character": "yier",
+      "emotion_zh": "圆满收尾",
+      "action_zh": "双手比心后向观众挥手",
+      "caption_zh": "今天就讲到这里！",
+      "asset": "yier_closing_celebrate.png",
+      "triggers": {"dialogue_act": ["synthesis"], "emotion": ["excited"], "tags": ["concession"]}
+    },
+    {
+      "id": "bubu_neutral_listen",
+      "character": "bubu",
+      "emotion_zh": "温和聆听",
+      "action_zh": "双手合起，面向主讲轻轻点头",
+      "caption_zh": "我在听。",
+      "asset": "bubu_neutral_listen.png",
+      "triggers": {"dialogue_act": [], "emotion": ["neutral"], "tags": []}
+    },
+    {
+      "id": "bubu_warm_greeting",
+      "character": "bubu",
+      "emotion_zh": "温暖问候",
+      "action_zh": "朝观众微笑挥手",
+      "caption_zh": "大家好。",
+      "asset": "bubu_warm_greeting.png",
+      "triggers": {"dialogue_act": ["claim"], "emotion": ["excited"], "tags": []}
+    },
+    {
+      "id": "bubu_gentle_question",
+      "character": "bubu",
+      "emotion_zh": "礼貌好奇",
+      "action_zh": "轻轻举手，头顶浮现问号",
+      "caption_zh": "我有个问题。",
+      "asset": "bubu_gentle_question.png",
+      "triggers": {"dialogue_act": ["challenge", "followup"], "emotion": ["curious"], "tags": ["question"]}
+    },
+    {
+      "id": "bubu_skeptical_probe",
+      "character": "bubu",
+      "emotion_zh": "审慎追问",
+      "action_zh": "抱臂微抬眉，检查假设",
+      "caption_zh": "这个假设成立吗？",
+      "asset": "bubu_skeptical_probe.png",
+      "triggers": {"dialogue_act": ["challenge"], "emotion": ["skeptical"], "tags": ["question", "disagreement"]}
+    },
+    {
+      "id": "bubu_deep_think",
+      "character": "bubu",
+      "emotion_zh": "深入思考",
+      "action_zh": "托腮凝视公式，身旁浮现思考泡泡",
+      "caption_zh": "让我想想。",
+      "asset": "bubu_deep_think.png",
+      "triggers": {"dialogue_act": ["followup"], "emotion": ["reflective"], "tags": []}
+    },
+    {
+      "id": "bubu_calm_answer",
+      "character": "bubu",
+      "emotion_zh": "从容解答",
+      "action_zh": "一手摊开说明，另一手指向简图",
+      "caption_zh": "可以这样理解。",
+      "asset": "bubu_calm_answer.png",
+      "triggers": {"dialogue_act": ["evidence_answer"], "emotion": ["neutral", "reflective"], "tags": []}
+    },
+    {
+      "id": "bubu_eyes_sparkle",
+      "character": "bubu",
+      "emotion_zh": "两眼放光",
+      "action_zh": "星星眼举起关键结果页",
+      "caption_zh": "这个思路很妙！",
+      "asset": "bubu_eyes_sparkle.png",
+      "triggers": {"dialogue_act": ["evidence_answer", "synthesis"], "emotion": ["excited"], "tags": ["surprise"]}
+    },
+    {
+      "id": "bubu_surprised",
+      "character": "bubu",
+      "emotion_zh": "惊讶",
+      "action_zh": "身体微微后仰，头顶出现感叹号",
+      "caption_zh": "原来是这样！",
+      "asset": "bubu_surprised.png",
+      "triggers": {"dialogue_act": ["concession"], "emotion": ["surprised"], "tags": ["surprise"]}
+    },
+    {
+      "id": "bubu_concede",
+      "character": "bubu",
+      "emotion_zh": "认可证据",
+      "action_zh": "认真点头，双手合起",
+      "caption_zh": "这个证据我接受。",
+      "asset": "bubu_concede.png",
+      "triggers": {"dialogue_act": ["concession"], "emotion": ["neutral", "reflective"], "tags": ["concession"]}
+    },
+    {
+      "id": "bubu_followup",
+      "character": "bubu",
+      "emotion_zh": "继续追问",
+      "action_zh": "身体前倾，竖起一根手指",
+      "caption_zh": "那再追问一步。",
+      "asset": "bubu_followup.png",
+      "triggers": {"dialogue_act": ["followup"], "emotion": ["curious", "serious"], "tags": ["question"]}
+    },
+    {
+      "id": "bubu_baseline_check",
+      "character": "bubu",
+      "emotion_zh": "检查基线",
+      "action_zh": "拿起两列表格对照基线设置",
+      "caption_zh": "基线公平吗？",
+      "asset": "bubu_baseline_check.png",
+      "triggers": {"dialogue_act": ["challenge"], "emotion": ["serious"], "tags": ["question"]}
+    },
+    {
+      "id": "bubu_sample_check",
+      "character": "bubu",
+      "emotion_zh": "检查样本",
+      "action_zh": "用放大镜查看样本数字",
+      "caption_zh": "样本量够吗？",
+      "asset": "bubu_sample_check.png",
+      "triggers": {"dialogue_act": ["challenge"], "emotion": ["skeptical"], "tags": ["question", "unresolved"]}
+    },
+    {
+      "id": "bubu_method_challenge",
+      "character": "bubu",
+      "emotion_zh": "追问方法",
+      "action_zh": "指向方法流程图中的关键箭头",
+      "caption_zh": "关键机制在哪？",
+      "asset": "bubu_method_challenge.png",
+      "triggers": {"dialogue_act": ["challenge"], "emotion": ["serious"], "tags": ["disagreement"]}
+    },
+    {
+      "id": "bubu_data_doubt",
+      "character": "bubu",
+      "emotion_zh": "质疑数据",
+      "action_zh": "拿着波动曲线图，皱眉看异常点",
+      "caption_zh": "波动怎么解释？",
+      "asset": "bubu_data_doubt.png",
+      "triggers": {"dialogue_act": ["challenge", "followup"], "emotion": ["skeptical"], "tags": ["unresolved"]}
+    },
+    {
+      "id": "bubu_limitation_warn",
+      "character": "bubu",
+      "emotion_zh": "提醒局限",
+      "action_zh": "举起警示牌并指向限制条目",
+      "caption_zh": "别忽略这个限制。",
+      "asset": "bubu_limitation_warn.png",
+      "triggers": {"dialogue_act": ["challenge", "synthesis"], "emotion": ["serious"], "tags": ["unresolved"]}
+    },
+    {
+      "id": "bubu_generalization",
+      "character": "bubu",
+      "emotion_zh": "思考推广",
+      "action_zh": "从论文图指向外部场景与小地球",
+      "caption_zh": "还能推广吗？",
+      "asset": "bubu_generalization.png",
+      "triggers": {"dialogue_act": ["followup"], "emotion": ["reflective"], "tags": ["unresolved"]}
+    },
+    {
+      "id": "bubu_replication_check",
+      "character": "bubu",
+      "emotion_zh": "检查复现",
+      "action_zh": "对照两份实验记录并打上问号",
+      "caption_zh": "能复现吗？",
+      "asset": "bubu_replication_check.png",
+      "triggers": {"dialogue_act": ["challenge"], "emotion": ["reflective"], "tags": ["unresolved"]}
+    },
+    {
+      "id": "bubu_amused",
+      "character": "bubu",
+      "emotion_zh": "会心一笑",
+      "action_zh": "捂嘴轻笑并点头",
+      "caption_zh": "这下说通了。",
+      "asset": "bubu_amused.png",
+      "triggers": {"dialogue_act": ["concession"], "emotion": ["excited"], "tags": ["concession"]}
+    },
+    {
+      "id": "bubu_encouragement",
+      "character": "bubu",
+      "emotion_zh": "鼓励",
+      "action_zh": "握拳加油，身体微微前倾",
+      "caption_zh": "继续，我们快到了。",
+      "asset": "bubu_encouragement.png",
+      "triggers": {"dialogue_act": ["evidence_answer"], "emotion": ["excited"], "tags": []}
+    },
+    {
+      "id": "bubu_conclusion",
+      "character": "bubu",
+      "emotion_zh": "稳妥收束",
+      "action_zh": "竖起拇指，另一手压住结论卡片",
+      "caption_zh": "结论收稳了。",
+      "asset": "bubu_conclusion.png",
+      "triggers": {"dialogue_act": ["synthesis"], "emotion": ["neutral", "serious"], "tags": []}
+    }
+  ]
+}

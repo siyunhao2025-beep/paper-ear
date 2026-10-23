@@ -9,6 +9,12 @@ map whose factual items point back to the supplied PDF.
 ```json
 {
   "schema_version": 1,
+  "brand_profile": "bubu-yier-v1",
+  "source_document": {
+    "filename": "the-current-user-upload.pdf",
+    "sha256": "sha256-of-that-exact-pdf",
+    "page_count": 12
+  },
   "paper": {},
   "reader": {},
   "summary": {},
@@ -23,6 +29,32 @@ map whose factual items point back to the supplied PDF.
   "glossary": []
 }
 ```
+
+## 一二 × 布布网页主题与真实文献绑定
+
+将根字段 `brand_profile` 设为 `bubu-yier-v1` 后，`source_document`
+是必填项。`filename`、`sha256` 和 `page_count` 必须来自本次传入
+`--pdf` 的真实文件；严格校验器与网页渲染器都会在写出站点前重新计算
+并比对，任何缺失或不一致都会直接失败。渲染报告同时记录 PDF 与
+`web_brief.json` 的规范路径、SHA-256、页数和 `verified` 状态。
+
+品牌站点还会生成 `site-identity.json` schema v2。清单明确记录 SHA-256
+算法与每个文件的哈希模式：HTML、CSS、JavaScript、JSON 等可识别 UTF-8
+文本先按 `utf8-lf-v1` 统一换行后哈希，PDF 与图片等二进制按
+`raw-bytes-v1` 逐字节哈希。因此 Git 在 Windows checkout 时仅把 LF 改成
+CRLF 不会产生误报，但正文、代码、图片或 PDF 的真实内容变化仍会失败。
+旧 schema 必须用当前渲染器重新生成，不会被验证器静默接受。
+
+仓库里的 `sample_paper.pdf`、`sample_web_brief.json` 与
+`examples/web-reader-demo/` 只用于展示功能。用户上传新论文时，必须重新
+完成全文读取、逐页视觉盘点、主张与来源锚定，并重新生成网页；不得复制
+示例的摘要、页码、结论或站点成品。文件哈希只能防止“串档”，不能替代
+逐条语义审校和原页核对。
+
+品牌网页固定显示一二（白色棕耳、女主讲）与布布（棕色、男追问），并
+明确标注“一二讲证据、布布问边界”。角色 PNG 会被复制到站点自己的
+`assets/characters/`，不依赖网络或仓库外路径。角色姿态属于阅读导航，
+不得作为论文证据，也不得改写 `summary`、`claims`、`sections` 或视觉说明。
 
 Validate the file before rendering:
 

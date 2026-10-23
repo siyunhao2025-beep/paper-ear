@@ -93,7 +93,7 @@ def main():
         "voice_backend": backend,
         "privacy_scope": (
             "Local synthesis stays on the configured machine; no PDF, page image, or narration is sent to a cloud provider."
-            if backend in {"lemonade-local", "kokoro-zh-local"}
+            if backend in {"lemonade-local", "kokoro-zh-local", "bubu-yier-local"}
             else "Only the final audition text is eligible for online synthesis; no PDF or page image is read or sent."
         ),
         "dry_run": bool(args.dry_run),
@@ -160,6 +160,27 @@ def main():
                     encoding="utf-8",
                 )
                 record["plan_file"] = plan_path.name
+            elif backend == "bubu-yier-local":
+                plan_path = output_dir / f"{clip_id}.local-plan.json"
+                plan_path.write_text(
+                    json.dumps(
+                        {
+                            "voice_backend": backend,
+                            "model": profile.get("model"),
+                            "voice": profile["voice"],
+                            "language": "zh-CN",
+                            "engine": "F5-TTS",
+                            "speed": delivery["rate"],
+                            "input_scope": "spoken_text-only",
+                            "text": text,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                record["plan_file"] = plan_path.name
             record["status"] = "planned"
         else:
             wav_path = output_dir / f"{clip_id}.wav"
@@ -186,7 +207,7 @@ def main():
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     action = "Planned" if args.dry_run else "Rendered"
     print(f"{action} {len(manifest['clips'])} voice audition(s): {manifest_path}")
-    if backend in {"lemonade-local", "kokoro-zh-local"}:
+    if backend in {"lemonade-local", "kokoro-zh-local", "bubu-yier-local"}:
         print("Privacy: this workflow does not open the source PDF; synthesis stays on the configured machine.")
     else:
         print("Privacy: this workflow does not open or upload the source PDF; online synthesis receives narration text only.")

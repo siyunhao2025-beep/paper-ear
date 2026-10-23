@@ -1,4 +1,4 @@
 interface:
-  display_name: "Paper Ear"
-  short_description: "Chat-guided paper readers and group-meeting videos"
-  default_prompt: "Use $paper-ear to turn this research PDF into an evidence reader or bilingual group-meeting video, keep choices in chat, pause once for voice audition, and resume after I choose."
+  display_name: "Paper Ear · 一二 × 布布"
+  short_description: "Bubu/Yier offline readers and paper videos"
+  default_prompt: "Use $paper-ear to turn this current research PDF into a bubu-yier-v1 offline evidence reader or bilingual group-meeting video. Rebuild every claim and visual from this PDF, verify its filename/SHA-256/page count before rendering, keep 一二 as the female evidence presenter and 布布 as the male boundary questioner, use the mandatory video opening and context-matched poses, and keep any needed choices in chat."

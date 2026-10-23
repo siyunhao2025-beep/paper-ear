@@ -1,5 +1,11 @@
 {
   "schema_version": 1,
+  "brand_profile": "bubu-yier-v1",
+  "source_document": {
+    "filename": "sample_paper.pdf",
+    "sha256": "d4e308c97e5e127a758b1e75e3da9da1373a55dd2fb632cdbdde82487804c687",
+    "page_count": 2
+  },
   "paper": {
     "title": "Sparse-Ear: Dynamic Token Routing for Efficient Long-Context Multimodal Reasoning",
     "authors": [
@@ -167,8 +173,8 @@
       "crop_path": "assets/visual-01-eq-1-2.png",
       "source_path": "assets/source-01-eq-1-2.jpg",
       "crop_pixels": [
-        744,
-        196
+        1215,
+        319
       ]
     },
     {
@@ -193,8 +199,8 @@
       "crop_path": "assets/visual-02-fig-1.png",
       "source_path": "assets/source-02-fig-1.jpg",
       "crop_pixels": [
-        780,
-        480
+        1275,
+        782
       ]
     },
     {
@@ -219,8 +225,8 @@
       "crop_path": "assets/visual-03-table-1.png",
       "source_path": "assets/source-03-table-1.jpg",
       "crop_pixels": [
-        789,
-        337
+        1290,
+        551
       ]
     }
   ],
@@ -344,9 +350,44 @@
       "definition": "仅对被选中的高显著性锚点保留精确 KV-cache 的高成本注意力路径。"
     }
   ],
+  "brand": {
+    "profile": "bubu-yier-v1",
+    "cast": {
+      "yier": {
+        "display_name": "一二",
+        "role": "女主讲 · 讲证据"
+      },
+      "bubu": {
+        "display_name": "布布",
+        "role": "男追问 · 问边界"
+      }
+    },
+    "notice": "角色导读不是论文证据，不得改写或扩大原文结论。",
+    "assets": {
+      "hero_yier": "assets/characters/yier_calm_explain.png",
+      "hero_bubu": "assets/characters/bubu_gentle_question.png",
+      "evidence_yier": "assets/characters/yier_evidence_point.png",
+      "evidence_bubu": "assets/characters/bubu_gentle_question.png",
+      "critique_yier": "assets/characters/yier_limitation_warn.png",
+      "critique_bubu": "assets/characters/bubu_skeptical_probe.png"
+    }
+  },
   "render": {
     "source_pdf_included": true,
     "dpi": 180,
-    "generated_pages": false
+    "generated_pages": true,
+    "brand_profile": "bubu-yier-v1",
+    "source_binding": {
+      "declared": true,
+      "required": true,
+      "verified": true,
+      "issues": []
+    },
+    "input_identity": {
+      "pdf_sha256": "d4e308c97e5e127a758b1e75e3da9da1373a55dd2fb632cdbdde82487804c687",
+      "pdf_pages": 2,
+      "brief_sha256": "03ca13f48f1ce0dba3e7d62a52d7a55fa4244df26dc0ca69c384c19b81f0b71e",
+      "brief_content_sha256": "06ebeecfc2319f255dd654853c2e9f02bd773c1007362f355992159793e9f77b"
+    }
   }
 }

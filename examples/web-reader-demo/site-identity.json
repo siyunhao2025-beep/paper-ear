@@ -1,0 +1,86 @@
+{
+  "schema_version": 2,
+  "brand_profile": "bubu-yier-v1",
+  "pdf_sha256": "d4e308c97e5e127a758b1e75e3da9da1373a55dd2fb632cdbdde82487804c687",
+  "pdf_pages": 2,
+  "brief_sha256": "03ca13f48f1ce0dba3e7d62a52d7a55fa4244df26dc0ca69c384c19b81f0b71e",
+  "brief_content_sha256": "06ebeecfc2319f255dd654853c2e9f02bd773c1007362f355992159793e9f77b",
+  "source_binding_verified": true,
+  "hash_contract": {
+    "algorithm": "sha256",
+    "text_mode": "utf8-lf-v1",
+    "binary_mode": "raw-bytes-v1",
+    "manifest_mode": "canonical-json-v1"
+  },
+  "site_sha256": "ed220172ed72b093468fe4efad1b7ac8f1890380dde7f0c68e620a3daeee92cc",
+  "files": {
+    "app.js": {
+      "sha256": "639bf0429db8fb09a4730be58c142ccb8b8e6afb94a7a7a2ad284cde7570d80c",
+      "mode": "utf8-lf-v1"
+    },
+    "assets/characters/bubu_gentle_question.png": {
+      "sha256": "efc8261df0dc89a66c481a44070daa71b8e356ecc123b58a23a1b563a1e61e06",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/characters/bubu_skeptical_probe.png": {
+      "sha256": "8189905ec22c829c7cd6c88d8b3f0af501e3531a2cbfbb2f098a0932819022cb",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/characters/yier_calm_explain.png": {
+      "sha256": "057537b8673bc8d1c1eed18f32019928c40531b12fb21f682e4095c0e307befc",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/characters/yier_evidence_point.png": {
+      "sha256": "c3c58b2ccec25bbb0cab6268cc05a94cbad96f7169a6522676c370f90464c3b7",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/characters/yier_limitation_warn.png": {
+      "sha256": "cc1a1355944a17e5fa61eab3eccb164897534085346a5866f932d695c7649290",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/source-01-eq-1-2.jpg": {
+      "sha256": "0c934ff3deda2bf7fe521309fcab5159e23551e30be650ea5ba24c61aa26a544",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/source-02-fig-1.jpg": {
+      "sha256": "0379d38ee059337ccc6eb4c2f816fd08b29e383e444b55c2a0c594d1545ce3d5",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/source-03-table-1.jpg": {
+      "sha256": "a6f027f451f62108fdc7ec7987f1f9706eedfdd990b3e9d0bfc843e64b4a9706",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/visual-01-eq-1-2.png": {
+      "sha256": "3d136b970774cb326f3c176cad0ccd1339aadbd815e24089051713c45c251cd6",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/visual-02-fig-1.png": {
+      "sha256": "a1624a61949af3700a6a8e8b9aefa97d8707d27206aadcfc81c688e314bbbfe8",
+      "mode": "raw-bytes-v1"
+    },
+    "assets/visual-03-table-1.png": {
+      "sha256": "39ea7619884ba2d20c0c90d2644aae9c593ea4d0438d88c8e468ab5f318be4bd",
+      "mode": "raw-bytes-v1"
+    },
+    "data.json": {
+      "sha256": "bbc3f030b27180bb70a21688035c9c6e11222199b203246d497fd022bc006579",
+      "mode": "utf8-lf-v1"
+    },
+    "index.html": {
+      "sha256": "fa0592e744f1887674ce9a60bdf18d0d1cdef57d03eea7169b6cff56ce6c1227",
+      "mode": "utf8-lf-v1"
+    },
+    "source-brief.json": {
+      "sha256": "06ebeecfc2319f255dd654853c2e9f02bd773c1007362f355992159793e9f77b",
+      "mode": "utf8-lf-v1"
+    },
+    "source.pdf": {
+      "sha256": "d4e308c97e5e127a758b1e75e3da9da1373a55dd2fb632cdbdde82487804c687",
+      "mode": "raw-bytes-v1"
+    },
+    "styles.css": {
+      "sha256": "351b84249e01ed1a0aa981f9c11122bb8c0568e25482d9b2b61633739b75c715",
+      "mode": "utf8-lf-v1"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 ---
 name: paper-ear
-description: Turn academic-paper PDFs into evidence-grounded interactive offline web readers or 1080p MP4 group-meeting videos, with optional free local/offline voice casting. Use when the user mentions paper-ear; asks to convert a research paper, PDF, or arXiv paper into a quick-browse website, HTML evidence reader, visual paper summary, video, or MP4 explanation; wants a bilingual paper walkthrough or lab-meeting presentation; wants local TTS or male/female voice auditions for a paper video; or wants exact passages, equations, figures, and tables preserved with page-accurate source locations.
+description: Turn academic-paper PDFs into evidence-grounded offline web readers or 1080p MP4 group-meeting videos, including the optional Bubu/Yier fan-made theme with a fixed local female-Yier presenter, male-Bubu discussant, mandatory opening, and 40 expressive poses. Use when the user mentions paper-ear, 一二, 布布, Bubu, or Yier; asks to convert a research PDF or arXiv paper into a quick-browse HTML reader, visual paper summary, bilingual lab-meeting video, or MP4 explanation; wants local TTS or voice auditions; or wants exact passages, equations, figures, and tables preserved with page-accurate source locations.
 ---
 
 # Paper Ear
@@ -23,6 +23,11 @@ Resolve `<SKILL_DIR>` to the directory containing this `SKILL.md`. Invoke bundle
 10. For online TTS, send only the final narration string plus provider controls. Never send the PDF, page images, extracted full text, evidence crops, local paths, or run artifacts. Disclose this text-only boundary before the first online synthesis. For local TTS, require a loopback endpoint by default and keep model weights outside the repository.
 11. A two-speaker video must contain real evidence-driven interaction, not alternating exposition. Use `evidence-dialogue-v2` for standard/full videos and pass its deterministic interaction gate.
 12. Keep human choices in the chat. Never ask the user to run a command, edit JSON, or download a configuration file. For a video with unapproved voices, pause once at the local audition page; after the user replies with both voices, resume and finish every requested artifact and QA gate without routine confirmation stops.
+13. For `brand_profile: bubu-yier-v1`, keep the cast fixed: female is 一二 (`yier`) and male is 布布 (`bubu`). The renderer, not the dialogue author, injects the three-turn mandatory opening before all paper turns. `--max-turns` limits paper turns only and must never remove the opening.
+14. In the branded profile, render both characters on every paper frame. Select one of 20 poses per character automatically from dialogue semantics, or honor a valid `character_pose` override. Never let a pose caption change, exaggerate, or substitute for the paper evidence.
+15. Treat the Bubu/Yier theme as non-official AI fan work. Do not call its voices, catchphrases, actions, or art official. Keep reference recordings and model weights outside the repository, label public outputs as AI-generated/non-official, and preserve the non-commercial model boundary documented in the local backend reference.
+16. Bind every `bubu-yier-v1` dialogue to the PDF uploaded for that run. Record `source_document.filename`, its real SHA-256, and `source_document.page_count`; both strict validation and rendering must recompute and match the hash/page count. Repository demos are feature illustrations only. Never use a demo MP4, `examples/sample_dialogue.json`, or facts from the sample paper as production input for a user's paper.
+17. Keep the branded reference pair immutable: yier and bubu must match their role-specific pinned WAV SHA-256 and pinned reference transcript. A different WAV plus its own valid checksum is not `bubu-yier-v1`; place an authorized replacement in a separate non-branded profile and require a fresh audition.
 
 ## Choose the output mode
 
@@ -109,6 +114,8 @@ Do not mark the inventory `complete` until manual review accounts for all region
 
 Write `<run_dir>/web_brief.json`. Read [references/web-brief-schema.md](references/web-brief-schema.md) for the complete contract and [examples/sample_web_brief.json](examples/sample_web_brief.json) for a runnable example.
 
+For the `bubu-yier-v1` web theme, set root `brand_profile` and bind `source_document.filename`, `source_document.sha256`, and `source_document.page_count` to the user's current PDF. Recompute them for every upload. The repository sample brief and demo site are never production inputs; the binding gate prevents file mix-ups but does not replace claim-by-claim semantic review.
+
 The reader must include:
 
 - a one-sentence answer, at least three 30-second points, and a compact three-minute synthesis;
@@ -138,12 +145,15 @@ python <SKILL_DIR>/scripts/render_paper_web.py \
   --pdf /absolute/path/to/paper.pdf \
   --brief <run_dir>/web_brief.json \
   --output-dir <run_dir>/site \
-  --pages-dir <run_dir>/pages \
   --copy-pdf \
   --report-json <run_dir>/web_render_report.json
 ```
 
 The output is a dependency-free static site. It contains three reading modes, an evidence rail, in-page search, figure/table/equation filters, source-crop zoom, original-page location view, local bookmarks, responsive layout, print styles, and reduced-motion support. It must not contain remote scripts, remote stylesheets, analytics, or automatic network calls.
+
+With `brand_profile: bubu-yier-v1`, the renderer copies the correct local transparent PNGs into `site/assets/characters/`, shows both bears in the hero and companion rail, and keeps the roles fixed: 一二 is the white, brown-eared female evidence presenter; 布布 is the brown male boundary questioner. Their poses may change between evidence and critique contexts, but their labels and poses are navigation only—not paper evidence—and must never obscure source crops or searchable text.
+
+For this branded profile, do not pass `--pages-dir`: the renderer rejects external page caches and rerenders pages from the current `--pdf` after the hash/page-count gate. This prevents stale PNGs from a previous paper entering the new evidence site. Non-branded runs retain the compatible `--pages-dir` option.
 
 Use `--copy-pdf` for a local/offline delivery when page links are useful. This copies the PDF only into the local site directory; it does not authorize committing or uploading that PDF.
 
@@ -184,6 +194,43 @@ Give the user a clickable `index.html` and, when useful, a ZIP containing the si
 Do not imply the local test PDF was published or uploaded.
 
 ## Group-meeting video workflow
+
+### Bubu/Yier branded profile
+
+Use this profile when the user asks for 一二/布布, approves that cast, or requests the repository's branded demo. Read [references/bubu-yier-local-backend.md](references/bubu-yier-local-backend.md) and [references/character-expression-system.md](references/character-expression-system.md) before configuring it. The root dialogue fields are fixed:
+
+```json
+{
+  "source_document": {
+    "filename": "the-current-user-upload.pdf",
+    "sha256": "the-current-pdf-sha256",
+    "page_count": 12
+  },
+  "brand_profile": "bubu-yier-v1",
+  "voice_backend": "bubu-yier-local",
+  "voice_model": "F5TTS_v1_Base",
+  "female_name": "一二（主讲）",
+  "male_name": "布布（追问）",
+  "female_voice": "yier",
+  "male_voice": "bubu"
+}
+```
+
+Do not add the opening to `turns`; the renderer injects it exactly once, before the first evidence turn:
+
+1. 一二, bright and smiling: `啊哒哒～啊哒哒哒哒～！谢谢大家对我们的喜欢！`, then 250 ms.
+2. 布布, warm and 6–10% slower: `感谢「小司在加油」做了这个 Skill——让我们，相遇在科研视频中。`, then 350 ms. Keep `小司在加油` as one nickname.
+3. 一二, short upward finish: `好啦，开始讲论文吧！`
+
+This is a fan-recognizable secondary-creation rhythm, not an official catchphrase claim. Keep the opening outside evidence coverage metrics. On a fresh machine, install the optional backend and fetch the checksum-pinned external references before running the check. Keep all references and weights outside the repository:
+
+```bash
+python -m pip install -r <SKILL_DIR>/requirements-bubu-yier.txt
+python <SKILL_DIR>/scripts/setup_bubu_yier_voice.py
+python <SKILL_DIR>/scripts/setup_bubu_yier_voice.py --check-only
+```
+
+Every branded paper turn shows both characters. Omit `character_pose` to select automatically from `dialogue_act`, `emotion`, and `interaction_tags`, or use one exact ID from `assets/characters/manifest.json`. A cross-character ID is an error; a missing PNG falls back to that character's neutral pose and must be reported. The render report must contain three intro records plus one pose record per rendered paper turn.
 
 ### 1. Preflight the source and environment
 
@@ -234,6 +281,8 @@ Do not ask questions the user already answered. If the user says to use defaults
 
 ### 3A. Cast and audition the voices
 
+For `bubu-yier-v1`, do not show the generic voice menu and do not swap roles: 一二 is the female presenter and 布布 is the male discussant. Run the backend check, then synthesize the two-line research audition only when this user has not already approved the pair. Once approved, reuse that decision and proceed. F5TTS v1 Base is CC-BY-NC-4.0; do not present this profile as a commercial advertising backend. On CPU, budget tens of seconds per short turn and roughly 20–30 minutes for a 15–20-turn video; prefer a supported GPU when available.
+
 Use `kokoro-zh-local` with the dedicated `kokoro-v1.1-zh` model and Misaki 1.1 Chinese G2P when the user wants free, account-free, offline Mandarin. The default local cast is `zf_090` for the presenter and `zm_033` for the discussant. Install the model with `setup_mandarin_voice.py`, then audition all eight curated Mandarin voices with `render_local_voice_menu.py`. Keep the menu's per-voice traits, acoustic measurements, best-fit role, and caution beside each player, and label them as same-line measurements plus casting judgments rather than official personality definitions. A generated WAV is not proof of intelligibility: the user must confirm that every word is understandable before the full render. Legacy Lemonade/Kokoro v1.0 Mandarin is disabled by default after failing that gate. Never imply that Kokoro's speed control equals true emotion control. Use Azure Speech, or the optional much larger local MOSS tier, when stronger acting matters. Keep Edge TTS as the lightweight online alternative.
 
 Read [references/local-voice-provenance.md](references/local-voice-provenance.md) before installing or recommending a local engine. Create the local Mandarin menu without opening a PDF:
@@ -280,6 +329,8 @@ Create a short storyboard table before rendering. Each row must show:
 
 Use the presenter to explain the paper and the discussant to probe assumptions, mechanisms, baselines, ablations, and limitations. Avoid fake disagreement and filler banter. Keep one main teaching point per turn. In a 15–20 turn standard video, include at least six substantive questions, three follow-ups, two explicit disagreements, two discovery moments, one discussant concession, one presenter self-correction, one presenter-to-discussant question, and one unresolved research question. Link every question to an evidence answer within one or two turns.
 
+For `bubu-yier-v1`, keep relationship language sparse and context-aware. 布布 may address 一二 as `一二宝`; 一二 normally uses `布布`, may use `臭布布` once after a sharp or playfully troublesome question, and may use `香布布` once after a useful evidence-based correction or synthesis. Never reverse these forms, repeat a special nickname more than once, or insert one inside a formula, number, quotation, evidence label, or the fixed opening. A complete 15–20-turn dialogue must contain at least one correct address in each direction.
+
 Do not stop merely to obtain storyboard confirmation. Continue with the chat-approved/default focus. Ask again only when competing interpretations would materially change the deliverable and the paper or prior user choices do not resolve them.
 
 ### 5. Write and validate the dialogue script
@@ -288,11 +339,13 @@ Write `<run_dir>/dialogue_script.json`. Read [references/dialogue-schema.md](ref
 
 Important rules:
 
+- Generate the script from the user's current PDF, not from the repository sample. For `bubu-yier-v1`, set `source_document.filename`, `source_document.sha256`, and `source_document.page_count` from that exact local file before writing any turns. Never carry these fields, page anchors, narration, or conclusions over from a previous run.
 - Use 1-indexed PDF page numbers.
 - Use normalized `red_box` coordinates `[x0, y0, x1, y1]` in the range `0.0..1.0`, with `x0 < x1` and `y0 < y1`.
 - Add a distinctive `search_text` for paragraphs, captions, and equations when text extraction can locate it.
 - Add `evidence_anchor` (or the legacy alias `source_anchor`) and `claim_type` to every turn.
 - Set `interaction_mode` to `evidence-dialogue-v2`, then add `dialogue_act`, `responds_to_turn`, `emotion`, `emotion_intensity`, `delivery`, `question_target`, and `interaction_tags` to every turn.
+- In `bubu-yier-v1`, let the pose engine select automatically unless a specific beat benefits from an exact `character_pose` in the 40-item manifest. Treat `character_caption` as optional staging text, never as narration or evidence.
 - Keep subtitles concise enough to fit: split long explanations into multiple turns rather than shrinking text excessively.
 - Map every analogy back to the real mechanism before moving on.
 
@@ -323,7 +376,7 @@ python <SKILL_DIR>/scripts/render_paper_video.py \
   --report-json <run_dir>/preview_render_report.json
 ```
 
-If the best micro-scene is not at the start of the full script, write a four-turn `interaction_preview.json` preserving the original evidence fields and render that file. Inspect every preview turn and listen for contrast, pauses, stress, natural interruption points, and whether the concession sounds earned. A preview using `offline-cadence` is visual timing only and cannot pass voice approval. Repair failures internally and rerun the preview; ask the user only if a subjective tradeoff or new authority is required.
+If the best micro-scene is not at the start of the full script, write a four-turn `interaction_preview.json` preserving the root `source_document` binding, brand/cast fields, and original turn evidence fields, then render that file against the same PDF. Inspect every preview turn and listen for contrast, pauses, stress, natural interruption points, and whether the concession sounds earned. A preview using `offline-cadence` is visual timing only and cannot pass voice approval. Repair failures internally and rerun the preview; ask the user only if a subjective tradeoff or new authority is required.
 
 ### 7. Render the publishable video
 
@@ -349,6 +402,7 @@ Run the deterministic media gate:
 ```bash
 python <SKILL_DIR>/scripts/verify_video.py \
   --video <run_dir>/final.mp4 \
+  --render-report <run_dir>/render_report.json \
   --expect-width 1920 \
   --expect-height 1080 \
   --json-out <run_dir>/video_qa.json
@@ -361,7 +415,8 @@ Then sample frames at the beginning, middle, end, and every figure/table turn. F
 - every intended figure/table/equation is framed correctly;
 - subtitles and cards stay within their panels and do not obscure evidence;
 - the final file has both video and audio streams, the expected resolution, and no truncated final turn;
-- `render_report.json` reports only the configured real provider (`kokoro-zh-local`, `lemonade-local`, `azure-speech`, or `edge-tts`) for a publishable run, with the intended voice/model and supported controls on every turn.
+- `render_report.json` reports only the configured real provider (`bubu-yier-local`, `kokoro-zh-local`, `lemonade-local`, `azure-speech`, or `edge-tts`) for a publishable run, with the intended voice/model and supported controls on every turn; the branded profile additionally reports all three mandatory intro turns, one resolved character pose per paper turn, and the fixed `-1.5 dB` / `0.89` limiter / `128k AAC` final mastering pass.
+- `render_report.json` records the canonical current PDF path, raw-byte PDF SHA-256, PDF page count, canonical dialogue path, raw-byte dialogue SHA-256, LF-normalized UTF-8 dialogue content SHA-256, explicit hash modes, and a verified source-binding flag. The media gate rehashes the current inputs: checkout-only LF↔CRLF changes are accepted, while real dialogue changes or PDF/video byte changes fail.
 
 ### 9. Deliver
 
@@ -386,7 +441,7 @@ Mark `workflow_state.json` complete only after every requested artifact passes i
 - **Browser interaction fails:** repair the HTML/CSS/JavaScript and repeat desktop plus mobile testing; a deterministic file check alone is not sufficient.
 - **Private/test PDF is inside a repository path:** move the run and delivery artifacts outside the repository before any commit or push, and confirm the source file is absent from `git status` and the staged file list.
 - **Text locator misses a figure or equation:** set `red_box` manually from the rendered page and keep `search_text` only when it resolves to the same target.
-- **TTS unavailable:** for default Mandarin local mode, run `setup_mandarin_voice.py --check-only`, verify `kokoro-onnx` and `misaki-fork[zh]`, and keep the model outside the repository; for Lemonade/MOSS, verify the loopback service and requested model. For online mode, generate a dry-run request/SSML plan and explain which credential is missing. Cadence audio is allowed only for visual timing; voice approval and publishable runs must stop under `--require-tts`.
+- **TTS unavailable:** for `bubu-yier-local`, run `setup_bubu_yier_voice.py --check-only`, verify the two external reference WAV hashes and the F5 package, and keep references/model weights outside the repository; for default Mandarin local mode, run `setup_mandarin_voice.py --check-only`, verify `kokoro-onnx` and `misaki-fork[zh]`; for Lemonade/MOSS, verify the loopback service and requested model. For online mode, generate a dry-run request/SSML plan and explain which credential is missing. Cadence audio is allowed only for visual timing; voice approval and publishable runs must stop under `--require-tts`.
 - **Mandarin is garbled or unintelligible:** invalidate the audition even when the WAV is structurally valid. Confirm the backend is `kokoro-zh-local`, the model is `kokoro-v1.1-zh`, and the report says `g2p: misaki-zh-1.1`; regenerate the same-line menu and require a fresh listening decision. Do not fall back to legacy Kokoro v1.0 Mandarin.
 - **Voice sounds synthetic:** audition the full local voice menu, add semantic pauses, shorten clauses, and verify that the selected model actually supports the requested control. Do not claim Kokoro has emotion styles, and do not fix flat delivery by inserting stage directions into spoken text. Offer MOSS/Azure as an explicit quality upgrade rather than hiding the limitation.
 - **Dialogue feels like alternating narration:** rewrite around the weakest assumptions and strongest internal evidence, link each question to an answer, then rerun the `evidence-dialogue-v2` metrics instead of adding filler interjections.
